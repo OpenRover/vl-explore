@@ -81,6 +81,7 @@ while video.isOpened():
     v = clip.encode_image(l, c, r)
     # Correlation with navigation prompts
     l, c, r = nav(v)
+    log.info(f"Navigation:", f"L | {l}", f"C | {c}", f"R | {r}", sep="\n  ")
     # Display text and score on frame
     for region, (text, score) in zip([L, C, R], [l, c, r]):
         sat = min(abs(score) / 0.5, 1)

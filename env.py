@@ -28,7 +28,8 @@ def logger(
     def log(*msgs: str, **_kwargs):
         if msg_color is not None:
             msgs = [colored(msg, msg_color) for msg in msgs]
-        print(f"{level} {ID}:", *msgs, **kwargs, **_kwargs)
+        msg, *_msgs = msgs
+        print(f"{level} {ID}: {msg}", *_msgs, **kwargs, **_kwargs)
 
     return log
 
