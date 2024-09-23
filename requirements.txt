@@ -1,0 +1,19 @@
+# ==============================================================================
+# Author: Yuxuan Zhang (robotics@z-yx.cc)
+# License: MIT
+# ==============================================================================
+
+# Utilities
+tqdm
+termcolor
+
+# Basic algebra and image processing
+numpy
+Pillow
+opencv-python
+
+# Machine learning framework and models
+torch
+torchvision
+ultralytics
+open-clip-torch

@@ -1,0 +1,28 @@
+# ==============================================================================
+# Author: Yuxuan Zhang (robotics@z-yx.cc)
+# License: MIT
+# ==============================================================================
+
+# VS Code
+.vscode/
+
+# Model weights, pre-encoded embeddings and prompt texts
+*.pt
+*.txt
+
+# Python runtime cache
+__pycache__
+
+# Input/output files
+data/
+*.mp4
+*.avi
+*.png
+*.jpg
+
+# MacOS
+.DS_Store
+__MACOSX
+
+# Windows
+Thumbs.db

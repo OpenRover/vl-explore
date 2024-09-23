@@ -1,0 +1,68 @@
+# This is the template boilerplate for navigation prompts
+# ==============================================================================
+# Each entry can have an accumulative weight that will be multiplied with other
+# hierarchies. The final weight will be the product of all the weights in the
+# hierarchy.
+# ==============================================================================
+# Author: Yuxuan Zhang (robotics@z-yx.cc)
+# ==============================================================================
+
+templates:
+  neutral:
+    - a {} @ 1.0
+    - an image of a {}
+    - a photo of a {}
+  negative:
+    - a cropped photo of a {}
+    - an incomplete photo of a {}
+    - a corrupted photo of a {}
+    - a bad photo of a {}
+    # Useful when a slice does not contain enough information
+    - an (unknown|unidentified|unrecognizable) (item|object|thing|picture)
+
+states:
+  positive:
+    - clear {}
+    - open {}
+    - wide {}
+    - empty {}
+    - spacious {}
+  negative:
+    - white {}
+    - black {}
+    - brown {}
+    - wooden {}
+    - textured {}
+    - painted {}
+    - cluttered {}
+    - messy {}
+    - crowded {}
+    - large {}
+
+objects:
+  positive:
+    - space
+    - gate
+    - door
+    - hallway
+    - corridor
+    - path
+    - walkway
+    - entrance
+    - exit
+    - passage
+    - aisle
+    - trail
+    - route
+    - way
+    - track
+    - road
+  negative:
+    - wall
+    - obstacle
+    - barrier
+    - blockage
+    - blockade
+    - barricade
+    - object
+    - item
