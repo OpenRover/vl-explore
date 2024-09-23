@@ -10,6 +10,7 @@ HOME = Path(__file__).parent
 parser = argparse.ArgumentParser()
 parser.add_argument("--device", type=str, default=None)
 parser.add_argument("--dataset", type=str, default="nav")
+parser.add_argument("--display", type=bool, default=False)
 args = parser.parse_args()
 
 

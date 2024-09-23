@@ -114,15 +114,17 @@ while video.isOpened():
             thickness=T,
             scale=s / 600,
         )
-    # Display frame
-    cv2.imshow("frame", frame)
     output.write(frame)
-    # Exit on any key press
-    if cv2.waitKey(1) >= 0:
-        break
+    # Display frame
+    if args.display:
+        cv2.imshow("frame", frame)
+        # Exit on any key press
+        if cv2.waitKey(1) >= 0:
+            break
 
-cv2.destroyAllWindows()
-cv2.waitKey(1)
+if args.display:
+    cv2.destroyAllWindows()
+    cv2.waitKey(1)
 log.info("saving video ...")
 output.release()
 video.release()
