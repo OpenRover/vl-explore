@@ -4,3 +4,5 @@
 # ==============================================================================
 from .region import Region
 from .textbox import TextBox
+from .video import VideoWriter
+from .tensor import norm

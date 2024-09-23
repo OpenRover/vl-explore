@@ -1,11 +1,12 @@
+#!/usr/bin/env python3
 # ==============================================================================
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
 import models.clip as clip, cv2, torch, numpy as np
 from prompts import Prompt
-from util import Region, TextBox
-from env import Logger, args
+from util import Region, TextBox, VideoWriter
+from env import Logger, args, HOME
 
 log = Logger(__file__)
 
@@ -19,6 +20,7 @@ video = cv2.VideoCapture(f"data/{dataset}.mp4")
 # Get video properties
 w = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
 h = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = video.get(cv2.CAP_PROP_FPS)
 raw_scale = min(w / 1280, h / 720)
 if raw_scale > 1:
     w = int(w / raw_scale)
@@ -41,12 +43,9 @@ PAD = int(s * 0.05)
 T = max(1, s // 200)
 
 # Output video pipe
-output = cv2.VideoWriter(
-    f"data/{dataset}_output.mp4",
-    cv2.VideoWriter_fourcc(*"hvc1"),
-    video.get(cv2.CAP_PROP_FPS),
-    (w, h),
-)
+outfile = HOME / "data" / f"{dataset}_output.mp4"
+output, cc = VideoWriter(outfile, fps, (w, h))
+log.info(f"Output video: {outfile} ({cc})")
 
 
 def draw_corners(
@@ -125,6 +124,6 @@ while video.isOpened():
 if args.display:
     cv2.destroyAllWindows()
     cv2.waitKey(1)
-log.info("saving video ...")
+log.info("Saving video ...")
 output.release()
 video.release()

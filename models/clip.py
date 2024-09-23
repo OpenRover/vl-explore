@@ -10,7 +10,7 @@ from PIL.Image import Image, fromarray
 
 from .__dir__ import DIR
 from env import to_device, Logger
-from util.tensor import norm
+from util import norm
 
 log = Logger(__file__)
 
