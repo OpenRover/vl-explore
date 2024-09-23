@@ -33,7 +33,7 @@ states:
     - wide {}
     - empty {}
     - spacious {}
-    - navigable {} @ 2.0
+    - navigable {}
   negative:
     - blocked {}
     - closed {}
