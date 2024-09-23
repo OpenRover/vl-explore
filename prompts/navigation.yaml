@@ -21,23 +21,28 @@ templates:
     - an (unknown|unidentified|unrecognizable) (item|object|thing|picture)
 
 states:
+  neutral:
+    - white {}
+    - black {}
+    - gray {}
+    - brown {}
+    - beige {}
   positive:
     - clear {}
     - open {}
     - wide {}
     - empty {}
     - spacious {}
+    - navigable {} @ 2.0
   negative:
-    - white {}
-    - black {}
-    - brown {}
+    - blocked {}
+    - closed {}
     - wooden {}
     - textured {}
     - painted {}
     - cluttered {}
     - messy {}
     - crowded {}
-    - large {}
 
 objects:
   positive:
