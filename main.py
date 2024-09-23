@@ -44,7 +44,7 @@ T = max(1, s // 200)
 
 # Output video pipe
 outfile = HOME / "data" / f"{dataset}_output.mp4"
-output, cc = VideoWriter(outfile, fps, (w, h))
+output, cc = VideoWriter(outfile, fps / float(args.frame_skip + 1), (w, h))
 log.info(f"Output video: {outfile} ({cc})")
 
 
@@ -69,11 +69,16 @@ def draw_corners(
 
 
 # Iterate over video frames
+skip_counter = args.frame_skip
 while video.isOpened():
     # Read frame
     ret, frame = video.read()
     if not ret:
         break
+    if skip_counter < args.frame_skip:
+        skip_counter += 1
+        continue
+    skip_counter = 0
     if raw_scale > 1:
         frame = cv2.resize(frame, (w, h))
     # Crop regions

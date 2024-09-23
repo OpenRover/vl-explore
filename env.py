@@ -10,7 +10,8 @@ HOME = Path(__file__).parent
 parser = argparse.ArgumentParser()
 parser.add_argument("--device", type=str, default=None)
 parser.add_argument("--dataset", type=str, default="nav")
-parser.add_argument("--display", type=bool, default=False)
+parser.add_argument("--display", action="store_true")
+parser.add_argument("--frame-skip", type=int, default=0)
 args = parser.parse_args()
 
 
