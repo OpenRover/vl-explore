@@ -40,9 +40,11 @@ def main():
                 )
             )
             node.get_logger().info(f"Confidence: {confidence}")
+            # Generate Motion Command based on Confidence
+            node.publish_motion(confidence)
+            # Publish the image
             node.publish_image(nav.render(frame, pred), stamp)
     except KeyboardInterrupt:
         pass
     finally:
         node.destroy_node()
-

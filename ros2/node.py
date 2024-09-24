@@ -3,9 +3,8 @@
 # License: MIT
 # ==============================================================================
 from rclpy.node import Node as ROS2Node
-from rclpy.subscription import Subscription
-from rclpy.publisher import Publisher
 from rclpy.time import Time
+from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from numpy import ndarray
@@ -22,8 +21,6 @@ def bgr8(image: ndarray) -> ndarray:
 
 
 class Node(ROS2Node):
-    image_sub: Subscription
-    image_pub: Publisher
 
     def __init__(self):
         super().__init__("perception")
@@ -32,6 +29,7 @@ class Node(ROS2Node):
             Image, "image_in", self.handle_image_msg, 10
         )
         self.image_pub = self.create_publisher(Image, "image_out", 10)
+        self.motion_pub = self.create_publisher(Twist, "motion", 10)
 
     image: ndarray = None
     stamp: Time = None
@@ -51,3 +49,13 @@ class Node(ROS2Node):
         msg = self.bridge.cv2_to_imgmsg(bgr8(image), encoding="bgr8")
         msg.header.stamp = stamp
         self.image_pub.publish(msg)
+
+    def publish_motion(self, confidence: list[float]):
+        assert len(confidence) == 3
+        l, c, r = confidence
+        fwd = max(0.0, min(1.0, float(c)))
+        turn = max(-1.0, min(1.0, float(l - r)))
+        msg = Twist()
+        msg.linear.x = fwd
+        msg.angular.z = turn
+        self.motion_pub.publish(msg)
