@@ -6,6 +6,10 @@
 # VS Code
 .vscode/
 
+# Virtual environment
+.env
+.venv
+
 # Model weights, pre-encoded embeddings and prompt texts
 *.pt
 *.txt

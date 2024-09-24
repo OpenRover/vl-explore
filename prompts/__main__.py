@@ -4,7 +4,7 @@
 # ==============================================================================
 from . import Prompt
 from random import random
-from env import Logger
+from util.env import Logger
 
 log = Logger(__file__)
 

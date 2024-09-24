@@ -5,8 +5,10 @@
 # ==============================================================================
 import models.clip as clip, cv2, torch, numpy as np
 from prompts import Prompt
-from util import Region, TextBox, VideoWriter
-from env import Logger, args, HOME
+from util.region import Region
+from util.graphics import TextBox, draw_corners
+from util.video import VideoWriter, VideoCapture
+from util.env import Logger, args, HOME
 
 log = Logger(__file__)
 
@@ -16,11 +18,9 @@ clip.text_model = None
 
 # Load video from data/nav.mp4
 dataset: str = args.dataset
-video = cv2.VideoCapture(f"data/{dataset}.mp4")
+video = VideoCapture(f"data/{dataset}.mp4")
 # Get video properties
-w = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
-h = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-fps = video.get(cv2.CAP_PROP_FPS)
+w, h = video.size
 raw_scale = min(w / 1280, h / 720)
 if raw_scale > 1:
     w = int(w / raw_scale)
@@ -44,7 +44,7 @@ T = max(1, s // 200)
 
 # Output video pipe
 outfile = HOME / "data" / f"{dataset}_output.mp4"
-output, cc = VideoWriter(outfile, fps / float(args.frame_skip + 1), (w, h))
+output, cc = VideoWriter(outfile, video.fps / float(args.frame_skip + 1), (w, h))
 log.info(f"Output video: {outfile} ({cc})")
 
 

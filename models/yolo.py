@@ -5,7 +5,7 @@
 import torch
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
-from env import to_device, Logger
+from util.env import to_device, Logger
 from .__dir__ import DIR
 
 log = Logger(__file__)

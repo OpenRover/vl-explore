@@ -26,11 +26,17 @@ class Region:
     bc: tuple[int, int]
     br: tuple[int, int]
 
-    def __init__(self, x, y, w, h):
+    def __init__(self, x, y, w, h, anchor: str = "corner"):
         self.w = abs(w)
         self.h = abs(h)
-        x1, xm, x2 = sorted([x, x + w // 2, x + w])
-        y1, ym, y2 = sorted([y, y + h // 2, y + h])
+        if anchor == "corner":
+            x1, xm, x2 = sorted([x, x + w // 2, x + w])
+            y1, ym, y2 = sorted([y, y + h // 2, y + h])
+        elif anchor == "center":
+            x1, xm, x2 = sorted([x, x + w // 2, x - w // 2])
+            y1, ym, y2 = sorted([y, y + h // 2, y - h // 2])
+        else:
+            raise ValueError(f"invalid anchor type: {anchor}")
         # Initialize slice regions
         self.tl = (x1, y1)
         self.tc = (xm, y1)

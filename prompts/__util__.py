@@ -5,7 +5,7 @@
 import hashlib, yaml, torch, re, itertools
 from pathlib import Path
 from models.clip import encode_text
-from env import to_device, Logger
+from util.env import to_device, Logger
 
 log = Logger(__file__)
 

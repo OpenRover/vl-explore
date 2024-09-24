@@ -4,6 +4,28 @@
 # ==============================================================================
 from pathlib import Path
 import cv2
+from numpy import ndarray
+
+
+class VideoCapture(cv2.VideoCapture):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.isOpened():
+            raise RuntimeError(f"Unable to open video capture for {args[0]}")
+        self.size = (
+            int(self.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            int(self.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+        )
+        self.fps = self.get(cv2.CAP_PROP_FPS)
+
+    def __iter__(self):
+        while self.isOpened():
+            ret, frame = self.read()
+            if not ret:
+                break
+            assert type(frame) is ndarray
+            yield frame
+        self.release()
 
 
 def VideoWriter(file: str | Path, fps: float, size: tuple[int, int], *cc: str):

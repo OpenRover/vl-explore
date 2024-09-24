@@ -9,8 +9,8 @@ from torchvision.transforms import Compose
 from PIL.Image import Image, fromarray
 
 from .__dir__ import DIR
-from env import to_device, Logger
-from util import norm
+from util.env import to_device, Logger
+from util.tensor import norm
 
 log = Logger(__file__)
 

@@ -2,11 +2,29 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
-import cv2, sys
+import sys, cv2, numpy as np
 from .region import Region
 from enum import Enum
 
-FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+def draw_corners(
+    frame,
+    r: Region,
+    length: int = 10,
+    color=(0, 0, 0),
+    thickness=1,
+    line_type=cv2.LINE_AA,
+):
+    for (x, y), dx, dy in r.corners():
+        for p2 in [(x + dx * length, y), (x, y + dy * length)]:
+            cv2.line(
+                frame,
+                (x, y),
+                p2,
+                color=color,
+                thickness=thickness,
+                lineType=line_type,
+            )
 
 
 class TextBox:
@@ -97,7 +115,7 @@ class TextBox:
 
         return render
 
-    def __call__(self, mat: cv2.Mat, text: str, **kwargs):
+    def __call__(self, mat: np.ndarray, text: str, **kwargs):
         for key, value in kwargs.items():
             setattr(self, key, value)
         return self.fit(text)(mat)

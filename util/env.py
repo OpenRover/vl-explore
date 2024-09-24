@@ -6,7 +6,7 @@ import argparse, torch, sys
 from pathlib import Path
 from termcolor import colored
 
-HOME = Path(__file__).parent
+HOME = Path(__file__).parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument("--device", type=str, default=None)
 parser.add_argument("--dataset", type=str, default="nav")
