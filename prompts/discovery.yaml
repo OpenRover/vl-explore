@@ -2,3 +2,9 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
+templates:
+  posit:
+    - a {}
+    - a doorway that leads to a {}
+  negative:
+    - not a {}

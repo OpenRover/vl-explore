@@ -11,6 +11,16 @@ from cv_bridge import CvBridge
 from numpy import ndarray
 
 
+def bgr8(image: ndarray) -> ndarray:
+    if image.shape[2] == 1:
+        image = image.repeat(3, axis=2)
+    elif image.shape[2] == 4:
+        image = image[:, :, :3]
+    elif image.shape[2] != 3:
+        raise ValueError("Invalid image format")
+    return image
+
+
 class Node(ROS2Node):
     image_sub: Subscription
     image_pub: Publisher
@@ -21,13 +31,13 @@ class Node(ROS2Node):
         self.image_sub = self.create_subscription(
             Image, "image_in", self.handle_image_msg, 10
         )
-        self.image_pub = self.create_publisher(Image, "perception", 10)
+        self.image_pub = self.create_publisher(Image, "image_out", 10)
 
     image: ndarray = None
     stamp: Time = None
 
     def handle_image_msg(self, msg: Image):
-        self.image = self.bridge.imgmsg_to_cv2(msg)
+        self.image = bgr8(self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8"))
         self.stamp = msg.header.stamp
 
     def grab(self):
@@ -38,6 +48,6 @@ class Node(ROS2Node):
         return image, stamp, valid
 
     def publish_image(self, image: ndarray, stamp: Time):
-        msg = self.bridge.cv2_to_imgmsg(image)
+        msg = self.bridge.cv2_to_imgmsg(bgr8(image), encoding="bgr8")
         msg.header.stamp = stamp
         self.image_pub.publish(msg)

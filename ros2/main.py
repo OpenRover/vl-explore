@@ -3,19 +3,20 @@
 # License: MIT
 # ==============================================================================
 from .node import Node
-from rclpy import init, shutdown, ok, spin_once
+from rclpy import init, ok, spin_once
 import models.clip as clip, cv2, numpy as np
 from prompts import Prompt
 from lib.navigation import Navigation
 
 
 def main():
+    # Initialize ROS2 node
+    init()
+    # Load prompts
     nav_prompt = Prompt("navigation")
     nav: Navigation = None
     # Release CLIP text model from memory
     clip.text_model = None
-    # Initialize ROS2 node
-    init()
     node = Node()
     try:
         while ok():
@@ -44,4 +45,4 @@ def main():
         pass
     finally:
         node.destroy_node()
-    shutdown()
+

@@ -12,7 +12,7 @@ parser.add_argument("--device", type=str, default=None)
 parser.add_argument("--dataset", type=str, default="nav")
 parser.add_argument("--display", action="store_true")
 parser.add_argument("--frame-skip", type=int, default=0)
-args = parser.parse_args()
+args, unknown = parser.parse_known_args()
 
 
 def logger(

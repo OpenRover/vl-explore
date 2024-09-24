@@ -81,7 +81,7 @@ class TextBox:
                     break
                 elif y + h * self.line_height > self.box.h:
                     # vertical overflow
-                    return self.fit(text, scale * 0.98)
+                    return self.fit(text, scale * 0.9)
                 line.append(tokens.pop(0))
             if flag_abort:
                 break

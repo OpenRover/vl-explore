@@ -62,7 +62,8 @@ class Navigation:
         ]
         # UI elements - text boxes
         tb_size = int(s * 0.5)
-        self.thickness = font_size = max(1.0, tb_size / 100)
+        font_size = max(1, tb_size / 200)
+        self.thickness = int(max(1, round(tb_size / 100)))
         # Offset from p2 to center of text box
         p2tc = tb_size // 2 + pad
         self.t_boxes = [
@@ -75,7 +76,7 @@ class Navigation:
                     anchor="center",
                 ),
                 vertical_align=vertical_align,
-                font_size=int(round(font_size)),
+                scale=font_size,
                 thickness=self.thickness,
             )
             for ((x, y), _), (dx, dy), vertical_align in zip(
@@ -100,8 +101,8 @@ class Navigation:
 
     def render(self, frame: np.ndarray, pred: list[tuple[str, float]]):
         L, C, R = self.regions
-        for (text, score), region, arrow, t_box in zip(
-            pred, self.regions, self.arrows, self.t_boxes
+        for (text, score), region, arrow, t_box, confidence in zip(
+            pred, self.regions, self.arrows, self.t_boxes, self.confidence
         ):
             sat = min(abs(score) / 0.5, 1)
             color = GREEN if score >= 0 else RED
@@ -109,15 +110,19 @@ class Navigation:
             color = list(map(int, color * 255))
             if region is C:
                 draw_corners(
-                    frame, region, length=self.s // 8, color=color, thickness=1
+                    frame,
+                    region,
+                    length=self.s // 8,
+                    color=color,
+                    thickness=self.thickness,
                 )
             cv2.arrowedLine(
                 frame,
                 arrow[0],
                 arrow[1],
                 color=color,
-                thickness=1,
+                thickness=self.thickness,
                 line_type=cv2.LINE_AA,
             )
-            t_box(frame, text, color=color)
+            t_box(frame, f"{text} ({score:.2f}, {confidence:.2f})", color=color)
         return frame

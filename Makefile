@@ -14,6 +14,7 @@ deinit:
 	rm -rf .env
 
 prompts:
+	source .env/bin/activate && \
 	python3 -m prompts
 
 clean:
