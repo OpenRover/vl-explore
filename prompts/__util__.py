@@ -25,7 +25,7 @@ def embeddings(
     path = dir / f"{hash}.pt"
     embeddings: torch.Tensor = None
     if not path.exists():
-        log.info(f"Encoding new prompts (hash={hash})")
+        log.info(f"Encoding new prompts (hash={hash}, count={len(prompts)})")
         embeddings = encode_text(*prompts)
         torch.save(embeddings, path)
         # Save as text

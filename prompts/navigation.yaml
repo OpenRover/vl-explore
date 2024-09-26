@@ -59,7 +59,6 @@ objects:
     - passage
     - aisle
     - trail
-    - route
     - way
     - track
     - road
@@ -70,5 +69,3 @@ objects:
     - blockage
     - blockade
     - barricade
-    - object
-    - item

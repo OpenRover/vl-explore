@@ -1,7 +1,4 @@
 from setuptools import find_packages, setup
-from warnings import filterwarnings
-
-filterwarnings("ignore", category=DeprecationWarning)
 
 package_name = "perception"
 

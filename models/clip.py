@@ -39,6 +39,7 @@ def init():
             name, pretrained=pretrained, cache_dir=DIR / "weights"
         )
     tokenizer = open_clip.get_tokenizer(name)
+    log.info("CLIP Model", name, "loaded.")
     return model
 
 
