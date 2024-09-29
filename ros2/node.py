@@ -52,10 +52,25 @@ class Node(ROS2Node):
 
     def publish_motion(self, confidence: list[float]):
         assert len(confidence) == 3
+        EPS = 1e-2
         l, c, r = confidence
-        fwd = max(0.0, min(1.0, float(c)))
-        turn = max(-1.0, min(1.0, float(l - r)))
+        # Range 0.0 ~ 1.0
+        forward = max(0.0, min(1.0, c * 2))
+        # Range -1.0 ~ +1.0
+        distraction = max(-1.0, min(1.0, (l - r)))
+        if abs(distraction) > EPS:
+            if forward > EPS:
+                sweep, turn = [distraction / 2.0] * 2
+            else:
+                # Turn around in the same spot
+                sweep, turn = 0.0, distraction
+        else:
+            sweep, turn = 0.0, 0.0
+        # Back off only when both turn and forward are zero
+        if forward < EPS and abs(distraction) < EPS:
+            forward, sweep, turn = -0.2, 0.0, 0.0
         msg = Twist()
-        msg.linear.x = fwd
-        msg.angular.z = turn
+        msg.linear.x = float(forward)
+        msg.linear.y = float(sweep)
+        msg.angular.z = float(turn)
         self.motion_pub.publish(msg)

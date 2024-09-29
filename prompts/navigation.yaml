@@ -22,12 +22,6 @@ templates:
     - an (unknown|unidentified|unrecognizable) (item|object|thing|picture)
 
 states:
-  neutral:
-    - white {}
-    - black {}
-    - gray {}
-    - brown {}
-    - beige {}
   positive:
     - clear {}
     - open {}
@@ -35,33 +29,30 @@ states:
     - empty {}
     - spacious {}
     - navigable {}
+    - (open|clear) (gateway|doorway|entrance|exit)
   negative:
-    - blocked {}
-    - closed {}
-    - wooden {}
-    - textured {}
-    - painted {}
-    - cluttered {}
-    - messy {}
-    - crowded {}
+    - (blocked|cluttered|messy|crowded) (space|scene)
+    - (closed|blocked) (gateway|doorway|entrance|exit)
+    - large {}
+    - concrete {}
+    - way blocking {}
 
 objects:
   positive:
     - space
-    - gate
-    - door
-    - hallway
-    - corridor
     - path
+    - hallway
     - walkway
-    - entrance
-    - exit
+    - corridor
     - passage
     - aisle
     - trail
     - way
     - track
     - road
+    - floor
+    - ground
+    - surface
   negative:
     - wall
     - obstacle
@@ -69,3 +60,7 @@ objects:
     - blockage
     - blockade
     - barricade
+    - staircase
+    - object
+    - item
+    - structure

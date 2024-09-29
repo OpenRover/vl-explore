@@ -84,7 +84,7 @@ class Navigation:
             )
         ]
 
-    decay: float = 0.9
+    decay: float = 0.5
     confidence: tuple[float, float, float] = [0, 0, 0]
 
     def __call__(self, frame: np.ndarray):
