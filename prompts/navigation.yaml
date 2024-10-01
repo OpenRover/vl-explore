@@ -13,13 +13,17 @@ templates:
     - a {} @ 1.0
     - an image of a {}
     - a photo of a {}
-  negative:
     - a cropped photo of a {}
+  negative:
     - an incomplete photo of a {}
     - a corrupted photo of a {}
     - a bad photo of a {}
     # Useful when a slice does not contain enough information
     - an (unknown|unidentified|unrecognizable) (item|object|thing|picture)
+    # Maybe too close to an object
+    - an empty photo
+    - a photo with nothing in it
+    - a meaningless photo
 
 states:
   positive:
@@ -39,28 +43,17 @@ states:
 
 objects:
   positive:
-    - space
-    - path
-    - hallway
-    - walkway
-    - corridor
-    - passage
-    - aisle
-    - trail
-    - way
-    - track
-    - road
-    - floor
-    - ground
-    - surface
+    - (way|path|road)
+    - (aisle|hallway|walkway|corridor)
+    - (floor|ground)
   negative:
     - wall
-    - obstacle
+    - item
     - barrier
+    - obstacle
     - blockage
     - blockade
     - barricade
     - staircase
     - object
-    - item
     - structure

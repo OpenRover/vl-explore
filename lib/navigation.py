@@ -23,7 +23,7 @@ class Navigation:
         frame_size: tuple[int, int],
         size_limit: tuple[int, int] | int | None = None,
         padding: float = 0.05,
-        decay: float = 0.9,
+        decay: float = 0.5,
     ):
         self.prompt = prompt
         # Running average decay factor for confidence
@@ -51,7 +51,6 @@ class Navigation:
             *(Region(*(tl + (x, s)), s, s) for x in range(0, w - s + 1, s)),
         ]
 
-    decay: float = 0.5
     confidence: tuple[float, ...] = None
 
     def __call__(self, frame: np.ndarray):
