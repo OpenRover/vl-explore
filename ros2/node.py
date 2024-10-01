@@ -53,7 +53,9 @@ class Node(ROS2Node):
     def publish_motion(self, confidence: list[float]):
         assert len(confidence) == 3
         EPS = 1e-2
-        l, c, r = confidence
+        wf, wn = 0.2, 0.8
+        confidence = zip(confidence[:3], confidence[3:])
+        l, c, r = (wf * f + wn * n for f, n in confidence)
         # Range 0.0 ~ 1.0
         forward = max(0.0, min(1.0, c * 2))
         # Range -1.0 ~ +1.0

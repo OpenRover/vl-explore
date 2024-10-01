@@ -4,7 +4,7 @@
 # ==============================================================================
 import models.clip as clip, cv2, numpy as np
 from prompts import Prompt
-from util.region import Region
+from util.geometry import Region, Point2i as Point
 from util.graphics import TextBox, draw_corners
 from util.env import Logger
 
@@ -17,10 +17,6 @@ GRAY = np.array([0.5, 0.5, 0.5], dtype=np.float64)
 
 
 class Navigation:
-    regions: list[Region]
-    arrows: list[tuple[tuple[int, int], tuple[int, int]]]
-    t_boxes: list[TextBox]
-
     def __init__(
         self,
         prompt: Prompt,
@@ -43,49 +39,20 @@ class Navigation:
         if raw_scale > 1:
             w = int(w / raw_scale)
             h = int(h / raw_scale)
-        self.frame_size = w, h
-        # Box size
-        s = self.s = min(h, w // 3)
-        t = (h - s) // 2
+        self.frame_size = Point(w, h)
+        # Fit a 3:2 region in the frame for square boxes
+        s = min(w // 3, h // 2)
+        tl = (self.frame_size - Point(s * 3, s * 2)) / 2
         # Cropping regions
-        self.regions = L, C, R = [Region(x, t, s, s) for x in range(0, w - s + 1, s)]
-        # UI elements - arrows
-        delta = [(1, 0), (0, 1), (-1, 0)]
-        pad = int(s * padding)
-        p12 = int(s * 0.2) + pad
-        self.arrows = [
-            [
-                (x + dx * p12, y + dy * p12),  # arrow tail
-                (x + dx * pad, y + dy * pad),  # arrow head
-            ]
-            for (x, y), (dx, dy) in zip([L.ml, (w // 2, 0), R.mr], delta)
-        ]
-        # UI elements - text boxes
-        tb_size = int(s * 0.5)
-        font_size = max(1, tb_size / 200)
-        self.thickness = int(max(1, round(tb_size / 100)))
-        # Offset from p2 to center of text box
-        p2tc = tb_size // 2 + pad
-        self.t_boxes = [
-            TextBox(
-                Region(
-                    x + dx * p2tc,
-                    y + dy * p2tc,
-                    tb_size,
-                    tb_size,
-                    anchor="center",
-                ),
-                vertical_align=vertical_align,
-                scale=font_size,
-                thickness=self.thickness,
-            )
-            for ((x, y), _), (dx, dy), vertical_align in zip(
-                self.arrows, delta, ("middle", "top", "middle")
-            )
+        self.regions = [
+            # Far
+            *(Region(*(tl + (x, 0)), s, s) for x in range(0, w - s + 1, s)),
+            # Near
+            *(Region(*(tl + (x, s)), s, s) for x in range(0, w - s + 1, s)),
         ]
 
     decay: float = 0.5
-    confidence: tuple[float, float, float] = [0, 0, 0]
+    confidence: tuple[float, ...] = None
 
     def __call__(self, frame: np.ndarray):
         if frame.shape[:2] != self.frame_size:
@@ -93,36 +60,51 @@ class Navigation:
         embeddings = clip.encode_image(*[r(frame) for r in self.regions])
         scores = self.prompt(embeddings)
         # update confidence - running average
-        self.confidence = [
-            self.decay * c + (1.0 - self.decay) * s
-            for c, (_, s) in zip(self.confidence, scores)
-        ]
+        if self.confidence is None:
+            self.confidence = [s for _, s in scores]
+        else:
+            self.confidence = [
+                self.decay * c + (1.0 - self.decay) * s
+                for c, (_, s) in zip(self.confidence, scores)
+            ]
         return scores, self.confidence, frame
 
+    dpi_scale = 2.0
+
     def render(self, frame: np.ndarray, pred: list[tuple[str, float]]):
-        L, C, R = self.regions
-        for (text, score), region, arrow, t_box, confidence in zip(
-            pred, self.regions, self.arrows, self.t_boxes, self.confidence
+        """Render navigation UI on the frame"""
+        scale = self.dpi_scale
+        size = self.frame_size * scale
+        thickness = int(round(2.0 * min(*size) / 1000))
+        font_scale = 1.0 * min(*size) / 1000
+        canvas = cv2.resize(frame, size, interpolation=cv2.INTER_LINEAR)
+        regions = list(r * scale for r in self.regions)
+        t_boxes = list(
+            TextBox(
+                r.scale(0.8),
+                scale=font_scale,
+                thickness=thickness,
+                align="center",
+                vertical_align="middle",
+                line_height=1.2,
+            )
+            for r in regions
+        )
+
+        for (text, score), region, t_box, confidence in zip(
+            pred, regions, t_boxes, self.confidence
         ):
             sat = min(abs(score) / 0.5, 1)
             color = GREEN if score >= 0 else RED
             color = color * sat + GRAY * (1 - sat)
             color = list(map(int, color * 255))
-            if region is C:
-                draw_corners(
-                    frame,
-                    region,
-                    length=self.s // 8,
-                    color=color,
-                    thickness=self.thickness,
-                )
-            cv2.arrowedLine(
-                frame,
-                arrow[0],
-                arrow[1],
+            draw_corners(
+                canvas,
+                region.offset(Point(-thickness, -thickness) * 4),
+                length=region.shape[0] // 8,
                 color=color,
-                thickness=self.thickness,
-                line_type=cv2.LINE_AA,
+                thickness=thickness * 2,
             )
-            t_box(frame, f"{text} ({score:.2f}, {confidence:.2f})", color=color)
-        return frame
+            t_box(canvas, f"{text}\n{score:.2f} | {confidence:.2f}", color=color)
+        # Scale down to original DPI
+        return cv2.resize(canvas, self.frame_size, interpolation=cv2.INTER_LINEAR)

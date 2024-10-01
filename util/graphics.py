@@ -3,7 +3,7 @@
 # License: MIT
 # ==============================================================================
 import sys, cv2, numpy as np
-from .region import Region
+from .geometry import Region
 from enum import Enum
 
 
@@ -29,6 +29,7 @@ def draw_corners(
 
 class TextBox:
     box: Region
+    align: str = "left"
     vertical_align: str = "middle"
     # Text properties
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -51,7 +52,13 @@ class TextBox:
         return cv2.getTextSize(text, self.font, scale, self.thickness)
 
     def tokens(self, text: str):
-        return text.split()
+        tokens = []
+        for line in text.split("\n"):
+            tokens.extend(line.split())
+            tokens.append("\n")
+        if len(tokens) > 0 and tokens[-1] == "\n":
+            tokens.pop()
+        return tokens
 
     def fit(self, text: str, scale: float = None):
         if scale is None:
@@ -64,8 +71,13 @@ class TextBox:
         flag_abort = False
         while len(tokens) > 0:
             line = []
+            line_width = 0
             while len(tokens) > 0:
                 next = tokens[0]
+                if next == "\n":
+                    # New line requested
+                    tokens.pop(0)
+                    break
                 (w, h), b = self.line_size(" ".join(line + [next]), scale)
                 org_y = y + h
                 h += b
@@ -82,10 +94,22 @@ class TextBox:
                 elif y + h * self.line_height > self.box.h:
                     # vertical overflow
                     return self.fit(text, scale * 0.9)
-                line.append(tokens.pop(0))
+                else:
+                    # add word to line
+                    line.append(tokens.pop(0))
+                    line_width = w
             if flag_abort:
                 break
-            lines.append((org_y, line))
+            match self.align.lower():
+                case "left":
+                    org_x = 0
+                case "center":
+                    org_x = (self.box.w - line_width) // 2
+                case "right":
+                    org_x = self.box.w - line_width
+                case _:
+                    raise ValueError(f'invalid align option "{self.align}"')
+            lines.append((org_x, org_y, line))
             y = int(y + h * self.line_height)
 
         match self.vertical_align.lower():
@@ -96,16 +120,16 @@ class TextBox:
             case "bottom":
                 offset_y = self.box.h - y
             case _:
-                raise ValueError(f"invalid vertical_align ({self.vertical_align})")
+                raise ValueError(f'invalid vertical_align "{self.vertical_align}"')
 
         def render(mat):
             x, y = self.box.tl
-            for dy, line in lines:
+            for dx, dy, line in lines:
                 text = " ".join(line)
                 cv2.putText(
                     mat,
                     text,
-                    (x, y + dy + offset_y),
+                    (x + dx, y + dy + offset_y),
                     self.font,
                     scale,
                     self.color,
@@ -119,3 +143,6 @@ class TextBox:
         for key, value in kwargs.items():
             setattr(self, key, value)
         return self.fit(text)(mat)
+
+    def __repr__(self):
+        return f"TextBox({self.box}, {self.vertical_align})"
