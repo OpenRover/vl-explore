@@ -8,6 +8,7 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from numpy import ndarray
+from util.iter import flatten
 
 
 def bgr8(image: ndarray) -> ndarray:
@@ -50,7 +51,8 @@ class Node(ROS2Node):
         msg.header.stamp = stamp
         self.image_pub.publish(msg)
 
-    def publish_motion(self, confidence: list[float]):
+    def publish_motion(self, confidence: list[list[float]]):
+        confidence = list(flatten(confidence))
         assert len(confidence) == 6
         EPS = 1e-2
         wf, wn = 0.2, 0.8
