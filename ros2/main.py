@@ -28,7 +28,7 @@ def main():
                 clip.text_model = None
                 nav = Nav.Nav1T3P(prompts, (w, h), (1280, 720))
             pred, confidence, frame = nav(image)
-            l, c, r = (f"{s:.4f} ({t})" for t, s in pred)
+            l, c, r = (f"{s:.4f} ({t})" for t, s in pred[3:])
             node.get_logger().info(
                 "\n\t".join(
                     [

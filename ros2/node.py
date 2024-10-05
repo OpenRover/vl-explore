@@ -51,18 +51,23 @@ class Node(ROS2Node):
         self.image_pub.publish(msg)
 
     def publish_motion(self, confidence: list[float]):
-        assert len(confidence) == 3
+        assert len(confidence) == 6
         EPS = 1e-2
         wf, wn = 0.2, 0.8
-        confidence = zip(confidence[:3], confidence[3:])
+        confidence = list(zip(confidence[:3], confidence[3:]))
         l, c, r = (wf * f + wn * n for f, n in confidence)
-        # Range 0.0 ~ 1.0
-        forward = max(0.0, min(1.0, c * 2))
+        # Reward forward if both near and far are high
+        far, near = confidence[1]
+        if far > EPS and near > EPS:
+            forward = far * 0.8 + near * 0.8
+        else:
+            forward = max(0.0, min(1.0, c))
         # Range -1.0 ~ +1.0
         distraction = max(-1.0, min(1.0, (l - r)))
         if abs(distraction) > EPS:
             if forward > EPS:
-                sweep, turn = [distraction / 2.0] * 2
+                # Turn down distraction term when moving forward
+                sweep, turn = [distraction / 4.0] * 2
             else:
                 # Turn around in the same spot
                 sweep, turn = 0.0, distraction
