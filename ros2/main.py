@@ -6,17 +6,13 @@ from .node import Node
 from rclpy import init, ok, spin_once
 import models.clip as clip, cv2, numpy as np
 from prompts import Prompt
-from lib.navigation import Navigation
+import lib.navigation as Nav
 
 
 def main():
     # Initialize ROS2 node
     init()
-    # Load prompts
-    nav_prompt = Prompt("navigation")
-    nav: Navigation = None
-    # Release CLIP text model from memory
-    clip.text_model = None
+    nav: Nav.Navigation = None
     node = Node()
     try:
         while ok():
@@ -25,8 +21,12 @@ def main():
             if not valid:
                 continue
             if nav is None:
+                # Load prompts
+                prompts = Prompt("navigation")
                 h, w = image.shape[:2]
-                nav = Navigation(nav_prompt, (w, h), (1280, 720))
+                # Release CLIP text model from memory
+                clip.text_model = None
+                nav = Nav.Nav1T3P(prompts, (w, h), (1280, 720))
             pred, confidence, frame = nav(image)
             l, c, r = (f"{s:.4f} ({t})" for t, s in pred)
             node.get_logger().info(

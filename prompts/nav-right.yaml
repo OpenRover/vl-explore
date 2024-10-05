@@ -3,11 +3,8 @@
 # License: MIT
 # ==============================================================================
 templates:
-  positive:
-    - {} 
-    - a doorway that leads to a {}
-  negative:
-    - not a {}
+  neutral:
+    - a photo with {} on the right
 
 states:
   include:

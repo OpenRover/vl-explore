@@ -19,12 +19,9 @@ class Prompt:
     embeddings_transposed: torch.Tensor  # Shape = (512, N)
 
     def __init__(self, name: str, *objects: str, **lv0: str):
-        # positive, negative = load_from(DIR / f"{name}.yaml")
-        # self.positive = PromptList(*positive)
-        # self.negative = PromptList(*negative)
-        self.prompts, self.weights, self.embeddings = embeddings(
-            *load_from(DIR / f"{name}.yaml", *objects, **lv0), dir=DIR / "__cache__"
-        )
+        prompts = load_from(DIR, f"{name}.yaml", *objects, **lv0)
+        dir = DIR / "__cache__"
+        self.prompts, self.weights, self.embeddings = embeddings(prompts, dir=dir)
         # Transpose embeddings to shape (512, N)
         self.embeddings_transposed: torch.Tensor = self.embeddings.T
 

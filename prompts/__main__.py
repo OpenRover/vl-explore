@@ -8,9 +8,11 @@ from util.env import Logger
 
 log = Logger(__file__)
 
-nav = Prompt("navigation")
+for _ in ["navigation", "nav-left", "nav-right", "nav-center"]:
+    log.info(f"Generating prompt: {_}")
+    nav = Prompt(_)
 
-for t, v in nav:
-    if random() > 0.05:
-        continue
-    log.debug(t, "=>", *nav(v))
+    for t, v in nav:
+        if random() > 0.05:
+            continue
+        log.debug(f"[{_}] {t} =>", *nav(v))

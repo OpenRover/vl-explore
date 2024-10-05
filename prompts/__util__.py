@@ -11,7 +11,7 @@ log = Logger(__file__)
 
 
 def embeddings(
-    *prompts: tuple[str, float], dir: Path
+    prompts: list[tuple[str, float]], dir: Path
 ) -> tuple[list[str], torch.Tensor]:
     dir.mkdir(parents=True, exist_ok=True)
     # Create unique string representation for all pairs
@@ -86,34 +86,66 @@ def preprocess(*entries: str):
             yield " ".join("".join(result).split()), weight
 
 
-def load_from(yaml_file: str, *objects: str, **lv0: list[str]):
-    positive, negative = extend([], []), extend([], [])
+load_cache: dict[
+    str, dict[str, tuple[list[tuple[str, float]], list[tuple[str, float]]]]
+] = {}
 
-    def process(level: dict[str, list[str]] | list[str]):
-        nonlocal positive, negative
-        if type(level) is dict:
-            positive_templates = []
-            negative_templates = []
-            for key, template in level.items():
-                if type(template) is not list:
-                    template = [str(template)]
-                match (key.lower()):
-                    case "positive":
-                        positive_templates += template
-                    case "negative":
-                        negative_templates += template
-                    case "neutral":
-                        positive_templates += template
-                        negative_templates += template
-                    case _:
-                        raise ValueError(f"invalid yaml level entry: {key}")
-            positive = extend(positive_templates, positive)
-            negative = extend(negative_templates, negative)
-        elif type(level) is list:
-            positive = extend(level, positive)
-            negative = extend(level, negative)
+
+def process(
+    dir: Path,
+    lv_key: str,
+    level: dict[str, list[str]] | list[str],
+    positive: list[tuple[str, float]] = [],
+    negative: list[tuple[str, float]] = [],
+):
+    if type(level) is dict:
+        positive_templates = []
+        negative_templates = []
+        includes = []
+        for key, template in level.items():
+            if type(template) is not list:
+                template = [str(template)]
+            match (key.lower()):
+                case "positive":
+                    positive_templates += template
+                case "negative":
+                    negative_templates += template
+                case "neutral":
+                    positive_templates += template
+                    negative_templates += template
+                case "include":
+                    for inc in template:
+                        if type(inc) is not str:
+                            raise ValueError(f"invalid yaml include entry: {inc}")
+                        load_from(dir, inc)
+                        assert (
+                            lv_key in load_cache[inc]
+                        ), f'key "{lv_key}" missing in {inc}'
+                        includes.append(load_cache[inc][lv_key])
+                case _:
+                    raise ValueError(f"invalid yaml level entry: {key}")
+        positive = list(extend(positive_templates, positive))
+        negative = list(extend(negative_templates, negative))
+        for p, n in includes:
+            positive += p
+            negative += n
+    elif type(level) is list:
+        positive = list(extend(level, positive))
+        negative = list(extend(level, negative))
+    else:
+        raise ValueError("invalid yaml level entry")
+    return positive, negative
+
+
+def load_from(dir: Path, yaml_file: str, *objects: str, **lv0: list[str]):
+    # Check for existing cache
+    if yaml_file in load_cache:
+        if "__res__" in load_cache[yaml_file]:
+            return load_cache[yaml_file]["__res__"]
         else:
-            raise ValueError("invalid yaml level entry")
+            raise ValueError(f"Loop reference to {yaml_file}")
+    # Create new cache entry
+    cache = load_cache[yaml_file] = {}
 
     if len(objects) > 0:
         if "neutral" in lv0:
@@ -122,15 +154,16 @@ def load_from(yaml_file: str, *objects: str, **lv0: list[str]):
             lv0["neutral"] = list(objects)
 
     if len(lv0) > 0:
-        process(lv0)
+        positive, negative = process(dir, "__runtime__", lv0, [], [])
+    else:
+        positive, negative = [], []
 
-    with open(yaml_file, "r") as file:
+    with open(Path(dir) / yaml_file, "r") as file:
         data = yaml.safe_load(file)
     for key in HIERARCHY:
         if key in data:
-            process(data[key])
+            positive, negative = process(dir, key, data[key], positive, negative)
+            cache[key] = positive, negative
 
-    for p, s in positive:
-        yield p, s
-    for n, s in negative:
-        yield n, -s
+    cache["__res__"] = list(positive) + list([(p, -s) for p, s in negative])
+    return cache["__res__"]
