@@ -21,10 +21,10 @@ video = VideoCapture(f"data/{dataset}.mp4")
 # Get video properties
 w, h = video.size
 
-prompt = Prompt("navigation")
+prompts = Prompt("navigation"),
 # prompts = Prompt("nav-left"), Prompt("nav-center"), Prompt("nav-right")
 clip.text_model = None  # Release CLIP text model from memory
-nav = Nav.Nav6T1P(prompt, (w, h), (1280, 720))
+nav = Nav.Nav6T1P(prompts, (w, h), (1280, 720))
 # nav = Nav.Nav1T3P(prompts, (w, h), (1280, 720))
 
 outfile = HOME / "data" / f"{dataset}_{type(nav).__name__}.mp4"
