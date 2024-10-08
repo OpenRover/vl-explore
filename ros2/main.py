@@ -4,8 +4,9 @@
 # ==============================================================================
 from .node import Node
 from rclpy import init, ok, spin_once
-import models.clip as clip, cv2, numpy as np
+
 from prompts import Prompt
+import models.clip as clip
 import lib.navigation as Nav
 from util.iter import flatten
 
@@ -15,6 +16,7 @@ def main():
     init()
     nav: Nav.Navigation = None
     node = Node()
+    node.actions.append(node.look_around(0.2))
     try:
         while ok():
             spin_once(node)
@@ -40,11 +42,12 @@ def main():
                     ]
                 )
             )
-            node.get_logger().info(f"Confidence: {confidence}")
             # Generate Motion Command based on Confidence
             node.publish_motion(confidence)
             # Publish the image
             nav.render(frame, pred, confidence)
+            if len(node.actions) and "render" in node.actions[-1]:
+                node.actions[-1]["render"](frame)
             node.publish_image(frame, stamp)
     except KeyboardInterrupt:
         pass

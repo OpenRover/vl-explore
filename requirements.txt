@@ -3,6 +3,9 @@
 # License: MIT
 # ==============================================================================
 
+# Black formatter
+black
+
 # Utilities
 tqdm
 termcolor

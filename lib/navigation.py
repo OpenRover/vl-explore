@@ -46,7 +46,7 @@ class Navigation:
         prompts: list[Prompt],
         frame_size: tuple[int, int],
         size_limit: tuple[int, int] | int | None = None,
-        decay: float = 0.0,
+        decay: float = 0.5,
     ):
         self.prompts = prompts
         self.decay = decay

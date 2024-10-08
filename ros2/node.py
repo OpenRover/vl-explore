@@ -2,13 +2,20 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
+from math import atan2, asin, degrees, sqrt
+from time import time as now
+from rclpy import ok, spin_once
 from rclpy.node import Node as ROS2Node
 from rclpy.time import Time
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, Imu
+from std_msgs.msg import Bool
 from cv_bridge import CvBridge
 from numpy import ndarray
 from util.iter import flatten
+from util.math import ang_diff, clamp, sign
+from util.action import Action
+from util.graphics import Region, TextBox
 
 
 def bgr8(image: ndarray) -> ndarray:
@@ -21,6 +28,10 @@ def bgr8(image: ndarray) -> ndarray:
     return image
 
 
+vt_clamp = clamp(0, 1.0)
+vr_clamp = clamp(-1.0, 1.0)
+
+
 class Node(ROS2Node):
 
     def __init__(self):
@@ -29,8 +40,28 @@ class Node(ROS2Node):
         self.image_sub = self.create_subscription(
             Image, "image_in", self.handle_image_msg, 10
         )
+        self.imu_sub = self.create_subscription(Imu, "imu", self.handle_imu_msg, 10)
+        self.halt_sub = self.create_subscription(Bool, "halt", self.handle_halt_msg, 10)
         self.image_pub = self.create_publisher(Image, "image_out", 10)
         self.motion_pub = self.create_publisher(Twist, "motion", 10)
+        self.get_logger().info("Waiting for initial messages")
+        while ok():
+            spin_once(self)
+            if self.image is None:
+                continue
+            if self.stamp is None:
+                continue
+            if self.attitude is None:
+                continue
+            break
+        self.get_logger().info("Perception node initialized")
+
+    def __call__(self, vx: float | int = 0, vy: float | int = 0, vz: float | int = 0):
+        msg = Twist()
+        msg.linear.x = float(vx)
+        msg.linear.y = float(vy)
+        msg.angular.z = float(vz)
+        self.motion_pub.publish(msg)
 
     image: ndarray = None
     stamp: Time = None
@@ -38,6 +69,49 @@ class Node(ROS2Node):
     def handle_image_msg(self, msg: Image):
         self.image = bgr8(self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8"))
         self.stamp = msg.header.stamp
+
+    attitude: list[float] = None
+
+    def handle_imu_msg(self, msg: Imu):
+        # Convert attitude quaternion to euler angles
+        x, y, z, w = (
+            msg.orientation.x,
+            msg.orientation.y,
+            msg.orientation.z,
+            msg.orientation.w,
+        )
+        roll = atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
+        pitch = asin(2.0 * (w * y - z * x))
+        yaw = atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+        # Convert to degrees
+        self.attitude = [degrees(roll), degrees(pitch), degrees(yaw)]
+
+    # Robot is considered trapped if halted for too long.
+    halted_since: float | None = None
+    # Robot has to be free to move for a certain duration without halt before it can be considered free.
+    free_to_move_since: float | None = now()
+
+    def handle_halt_msg(self, msg: Bool):
+        halted = bool(msg.data)
+        if halted:
+            self.free_to_move_since = None
+            if self.halted_since is None:
+                self.halted_since = now()
+        else:
+            if self.free_to_move_since is None:
+                self.free_to_move_since = now()
+
+    def trapped_for(self, duration: float = 5.0, free_threshold: float = 2.0) -> bool:
+        if self.halted_since is None:
+            return False
+        t = now()
+        halt_duration = t - self.halted_since
+        free_duration = t - self.free_to_move_since
+        if free_duration > free_threshold:
+            self.halted_since = None
+            return False
+        else:
+            return halt_duration > duration
 
     def grab(self):
         image, stamp = self.image, self.stamp
@@ -51,35 +125,133 @@ class Node(ROS2Node):
         msg.header.stamp = stamp
         self.image_pub.publish(msg)
 
+    actions: list[Action] = []
+
+    @Action.action
+    def turn_to(self, heading: float, kv: float = 0.2, tolerance: float = 1.0):
+        """Turn to a specific heading, stops when angular error is within tolerance"""
+        _, _, rz = self.attitude
+        t_box: TextBox = None
+        region: Region = None
+
+        def render(frame: ndarray):
+            nonlocal t_box, region
+            if t_box is None or region is None:
+                h, w = frame.shape[:2]
+                region = Region(0, h - 50, w, 50)
+                t_box = TextBox(region, align="center", color=(255, 128, 64))
+            frame[region.slice_y, region.slice_x] = region(frame) * 0.6
+            t_box(frame, f"Turning from {rz:.2f}° to {heading:.1f}°")
+
+        yield {"render": render}
+
+        while True:
+            _, _, rz = self.attitude
+            dr = ang_diff(rz, heading)
+            if abs(dr) < tolerance:
+                yield 0.0, 0.0, 0.0
+                break
+            else:
+                vr = vr_clamp(sign(dr) * sqrt(abs(dr / 30.0))) * kv
+                if abs(vr) < 0.1:
+                    vr = sign(vr) * 0.1
+                yield 0.0, 0.0, vr
+
+    @Action.action
+    def look_around(self, direction: float):
+        """Perform a 360 degree turn around, find best heading to go next"""
+        # (heading, confidence)
+        database: list[tuple[float, float]] = []
+        prev_rz: float = self.attitude[2]
+        accumulated_angle: float = 0.0
+
+        t_box: TextBox = None
+        region: Region = None
+
+        def render(frame: ndarray):
+            nonlocal t_box, region
+            if t_box is None or region is None:
+                h, w = frame.shape[:2]
+                region = Region(0, h - 50, w, 50)
+                t_box = TextBox(region, align="center", color=(255, 128, 64))
+            progress = "{:.1f}".format(abs(accumulated_angle) / 360.0)
+            frame[region.slice_y, region.slice_x] = region(frame) * 0.6
+            t_box(frame, f"Looking around - {progress.rjust(5, '0')}%")
+
+        yield {"render": render}
+
+        while abs(accumulated_angle) < 360.0 or len(database) < 10:
+            # Continue turning around
+            confidence = yield 0.0, 0.0, direction
+            _, _, rz = self.attitude
+            database.append((rz, confidence))
+            dr = ang_diff(prev_rz, rz, direction=direction)
+            accumulated_angle += dr
+            prev_rz = rz
+        self.get_logger().info(
+            "Look around completed ({accumulated_angle:.2f}°) with {len(database)} samples"
+        )
+        # Find the best heading to go next
+        best_heading, best_confidence = None, 0.0
+        for heading, confidence in database:
+            if confidence > best_confidence:
+                best_heading, best_confidence = heading, confidence
+        if best_heading is not None:
+            return self.turn_to(best_heading)
+        else:
+            self.get_logger().warn("No plausible way found in look around database")
+            # Try again
+            return self.look_around(direction)
+
     def publish_motion(self, confidence: list[list[float]]):
         confidence = list(flatten(confidence))
         assert len(confidence) == 6
         EPS = 1e-2
-        wf, wn = 0.2, 0.8
         confidence = list(zip(confidence[:3], confidence[3:]))
-        l, c, r = (wf * f + wn * n for f, n in confidence)
-        # Reward forward if both near and far are high
-        far, near = confidence[1]
-        if far > EPS and near > EPS:
-            forward = far * 0.8 + near * 0.8
-        else:
-            forward = max(0.0, min(1.0, c))
-        # Range -1.0 ~ +1.0
-        distraction = max(-1.0, min(1.0, (l - r)))
-        if abs(distraction) > EPS:
-            if forward > EPS:
-                # Turn down distraction term when moving forward
-                sweep, turn = [distraction / 4.0] * 2
+
+        def fusion(f: float, n: float) -> float:
+            wf, wn = 0.2, 0.8
+            if n <= EPS:
+                return n
+            elif f >= n:
+                return wf * f + wn * n
             else:
-                # Turn around in the same spot
-                sweep, turn = 0.0, distraction
+                return n
+
+        l, c, r = (fusion(f, n) for f, n in confidence)
+
+        if len(self.actions) > 0:
+            # One or more action is currently in progress
+            action = self.actions[-1]
+            val, done = action(c)
+            if done:
+                self.actions.pop()
+            if isinstance(val, Action):
+                self.actions.append(val)
+            elif isinstance(val, (list, tuple)):
+                self(*val)
+            elif val is not None:
+                raise ValueError(f"Invalid action return value {val}")
+        elif self.trapped_for(5.0):
+            # Continuous halt during normal operation
+            self.look_around(0.2 if l >= r else -0.2)
         else:
-            sweep, turn = 0.0, 0.0
-        # Back off only when both turn and forward are zero
-        if forward < EPS and abs(distraction) < EPS:
-            forward, sweep, turn = -0.2, 0.0, 0.0
-        msg = Twist()
-        msg.linear.x = float(forward)
-        msg.linear.y = float(sweep)
-        msg.angular.z = float(turn)
-        self.motion_pub.publish(msg)
+            # Normal operation
+            # Range 0.0 ~ 1.0
+            forward = vt_clamp(c * 2)
+            # Range -1.0 ~ +1.0
+            distraction = vr_clamp(l - r)
+            if abs(distraction) > EPS:
+                if forward > EPS:
+                    # Turn down distraction term when moving forward
+                    sweep, turn = [distraction / 4.0] * 2
+                else:
+                    # Turn around in the same spot
+                    sweep, turn = 0.0, distraction / 4.0
+            else:
+                sweep, turn = 0.0, 0.0
+            # Back off only when both turn and forward are zero
+            if forward < EPS and abs(distraction) < EPS:
+                forward, sweep, turn = -0.2, 0.0, 0.0
+            # Publish motion
+            self(forward, sweep, turn)

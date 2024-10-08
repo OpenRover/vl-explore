@@ -33,10 +33,10 @@ states:
     - empty {}
     - spacious {}
     - navigable {}
-    - (open|clear) (gateway|doorway|entrance|exit)
+    - (open|clear) (gateway|channel)
   negative:
     - (blocked|cluttered|messy|crowded) (space|scene)
-    - (closed|blocked) (gateway|doorway|entrance|exit)
+    - (closed|blocked) (gateway|channel)
     - large {}
     - concrete {}
     - way blocking {}
@@ -57,3 +57,4 @@ objects:
     - staircase
     - object
     - structure
+    - (box|paper box|cardboard)
