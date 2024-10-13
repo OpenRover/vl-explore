@@ -2,7 +2,7 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
-from .node import Node
+from .node import Node, banner, now
 from rclpy import init, ok, spin_once
 
 from prompts import Prompt
@@ -48,6 +48,10 @@ def main():
             nav.render(frame, pred, confidence)
             if len(node.actions) and "render" in node.actions[-1]:
                 node.actions[-1]["render"](frame)
+            else:
+                trapped_for = node.trapped_for()
+                if trapped_for > 0:
+                    banner(frame, f"Trapped for {trapped_for:.2f} seconds")
             node.publish_image(frame, stamp)
     except KeyboardInterrupt:
         pass

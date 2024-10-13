@@ -27,19 +27,16 @@ templates:
 
 states:
   positive:
-    - clear {}
-    - open {}
-    - wide {}
-    - empty {}
-    - spacious {}
-    - navigable {}
-    - (open|clear) (gateway|channel)
+    - (flat|open|wide|clear|clean|smooth) {}
+    - (empty|spacious|navigable) {}
+    - (flat|open|clear) (gateway|doorway|entrance)
   negative:
     - (blocked|cluttered|messy|crowded) (space|scene)
-    - (closed|blocked) (gateway|channel)
+    - (closed|blocked) (gateway|doorway|entrance)
     - large {}
-    - concrete {}
     - way blocking {}
+    - "{} behind a clear glass"
+    - (transparent|clear|reflective) glass
 
 objects:
   positive:

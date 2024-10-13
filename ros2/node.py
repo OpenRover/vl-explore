@@ -31,6 +31,19 @@ def bgr8(image: ndarray) -> ndarray:
 vt_clamp = clamp(0, 1.0)
 vr_clamp = clamp(-1.0, 1.0)
 
+t_box: TextBox = None
+region: Region = None
+
+
+def banner(frame: ndarray, text: str):
+    global t_box, region
+    if t_box is None or region is None:
+        h, w = frame.shape[:2]
+        region = Region(0, h - 50, w, 50)
+        t_box = TextBox(region, align="center", color=(255, 128, 64))
+    frame[region.slice_y, region.slice_x] = region(frame) * 0.6
+    t_box(frame, text)
+
 
 class Node(ROS2Node):
 
@@ -56,12 +69,24 @@ class Node(ROS2Node):
             break
         self.get_logger().info("Perception node initialized")
 
-    def __call__(self, vx: float | int = 0, vy: float | int = 0, vz: float | int = 0):
+    def __call__(
+        self,
+        vx: float | int = 0,
+        vy: float | int = 0,
+        vz: float | int = 0,
+        detect_trap: bool = True,
+    ):
         msg = Twist()
         msg.linear.x = float(vx)
         msg.linear.y = float(vy)
         msg.angular.z = float(vz)
         self.motion_pub.publish(msg)
+        if detect_trap:
+            self.forward_motion = vx >= 0.0
+            self.check_trapped()
+        else:
+            # Lack of motion does not indicate being trapped
+            self.forward_motion = True
 
     image: ndarray = None
     stamp: Time = None
@@ -84,34 +109,41 @@ class Node(ROS2Node):
         pitch = asin(2.0 * (w * y - z * x))
         yaw = atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
         # Convert to degrees
-        self.attitude = [degrees(roll), degrees(pitch), degrees(yaw)]
+        self.attitude = list(ang_diff(0.0, degrees(x)) for x in [roll, pitch, yaw])
 
+    # Signals stopping the robot from exploring further
+    forward_motion: bool = False
+    halt_signal: bool = False
     # Robot is considered trapped if halted for too long.
-    halted_since: float | None = None
+    trapped_since: float | None = None
     # Robot has to be free to move for a certain duration without halt before it can be considered free.
     free_to_move_since: float | None = now()
 
-    def handle_halt_msg(self, msg: Bool):
-        halted = bool(msg.data)
-        if halted:
+    def check_trapped(self):
+        if self.halt_signal or not self.forward_motion:
             self.free_to_move_since = None
-            if self.halted_since is None:
-                self.halted_since = now()
-        else:
-            if self.free_to_move_since is None:
-                self.free_to_move_since = now()
+            if self.trapped_since is None:
+                self.trapped_since = now()
+        elif self.free_to_move_since is None:
+            self.free_to_move_since = now()
+        return self.trapped_since
 
-    def trapped_for(self, duration: float = 5.0, free_threshold: float = 2.0) -> bool:
-        if self.halted_since is None:
-            return False
+    def handle_halt_msg(self, msg: Bool):
+        self.halt_signal = bool(msg.data)
+        self.check_trapped()
+
+    def trapped_for(self, free_threshold: float = 2.0) -> float:
+        trapped_since = self.check_trapped()
+        if trapped_since is None:
+            return 0.0
         t = now()
-        halt_duration = t - self.halted_since
-        free_duration = t - self.free_to_move_since
-        if free_duration > free_threshold:
-            self.halted_since = None
-            return False
-        else:
-            return halt_duration > duration
+        if self.free_to_move_since is not None:
+            free_duration = t - self.free_to_move_since
+            if free_duration > free_threshold:
+                self.trapped_since = None
+                return 0.0
+        trap_duration = float(t - self.trapped_since)
+        return trap_duration
 
     def grab(self):
         image, stamp = self.image, self.stamp
@@ -131,31 +163,24 @@ class Node(ROS2Node):
     def turn_to(self, heading: float, kv: float = 0.2, tolerance: float = 1.0):
         """Turn to a specific heading, stops when angular error is within tolerance"""
         _, _, rz = self.attitude
-        t_box: TextBox = None
-        region: Region = None
 
-        def render(frame: ndarray):
-            nonlocal t_box, region
-            if t_box is None or region is None:
-                h, w = frame.shape[:2]
-                region = Region(0, h - 50, w, 50)
-                t_box = TextBox(region, align="center", color=(255, 128, 64))
-            frame[region.slice_y, region.slice_x] = region(frame) * 0.6
-            t_box(frame, f"Turning from {rz:.2f}° to {heading:.1f}°")
-
-        yield {"render": render}
+        yield {
+            "render": lambda frame: banner(
+                frame, f"Turning from {rz:.2f} deg => {heading:.1f} deg"
+            )
+        }
 
         while True:
             _, _, rz = self.attitude
             dr = ang_diff(rz, heading)
             if abs(dr) < tolerance:
-                yield 0.0, 0.0, 0.0
+                yield 0.0, 0.0, 0.0, False
                 break
             else:
                 vr = vr_clamp(sign(dr) * sqrt(abs(dr / 30.0))) * kv
-                if abs(vr) < 0.1:
-                    vr = sign(vr) * 0.1
-                yield 0.0, 0.0, vr
+                if abs(vr) < 0.2:
+                    vr = sign(vr) * 0.2
+                yield 0.0, 0.0, vr, False
 
     @Action.action
     def look_around(self, direction: float):
@@ -165,24 +190,15 @@ class Node(ROS2Node):
         prev_rz: float = self.attitude[2]
         accumulated_angle: float = 0.0
 
-        t_box: TextBox = None
-        region: Region = None
-
         def render(frame: ndarray):
-            nonlocal t_box, region
-            if t_box is None or region is None:
-                h, w = frame.shape[:2]
-                region = Region(0, h - 50, w, 50)
-                t_box = TextBox(region, align="center", color=(255, 128, 64))
-            progress = "{:.1f}".format(abs(accumulated_angle) / 360.0)
-            frame[region.slice_y, region.slice_x] = region(frame) * 0.6
-            t_box(frame, f"Looking around - {progress.rjust(5, '0')}%")
+            progress = "{:.1f}".format(100.0 * abs(accumulated_angle) / 360.0)
+            banner(frame, f"Looking around - {progress.rjust(5, '0')}%")
 
         yield {"render": render}
 
         while abs(accumulated_angle) < 360.0 or len(database) < 10:
             # Continue turning around
-            confidence = yield 0.0, 0.0, direction
+            confidence = yield 0.0, 0.0, direction, False
             _, _, rz = self.attitude
             database.append((rz, confidence))
             dr = ang_diff(prev_rz, rz, direction=direction)
@@ -232,13 +248,13 @@ class Node(ROS2Node):
                 self(*val)
             elif val is not None:
                 raise ValueError(f"Invalid action return value {val}")
-        elif self.trapped_for(5.0):
+        elif self.trapped_for() >= 5.0:
             # Continuous halt during normal operation
-            self.look_around(0.2 if l >= r else -0.2)
+            self.actions.append(self.look_around(0.2 if l >= r else -0.2))
         else:
             # Normal operation
             # Range 0.0 ~ 1.0
-            forward = vt_clamp(c * 2)
+            forward = vt_clamp(c * 1.2)
             # Range -1.0 ~ +1.0
             distraction = vr_clamp(l - r)
             if abs(distraction) > EPS:
