@@ -1,33 +1,68 @@
+# ==============================================================================
+# Author: Yuxuan Zhang (robotics@z-yx.cc)
+# License: MIT
+# ==============================================================================
 def sign(value: float) -> int:
-  """Return the sign of a value"""
-  if value > 0:
-    return 1
-  elif value < 0:
-    return -1
-  else:
-    return 0
+    """Return the sign of a value"""
+    if value > 0:
+        return 1
+    elif value < 0:
+        return -1
+    else:
+        return 0
+
 
 def clamp(min: float, max: float) -> float:
-  """lambda function to clamp a value between min and max"""
-  assert min <= max
-  def fn(value: float) -> float:
-    return max if value > max else min if value < min else value
-  return fn
+    """lambda function to clamp a value between min and max"""
+    assert min <= max
+
+    def fn(value: float) -> float:
+        return max if value > max else min if value < min else value
+
+    return fn
+
 
 def ang_diff(src: float, dst: float, half_period=180.0, direction=None) -> float:
-  """
-  Check the minimum angular distance between two angles.
-  Positive if dst is clockwise from src, negative otherwise.
-  """
-  period = 2 * half_period
-  diff = dst % period - src % period
-  if diff > half_period:
-    diff -= 2 * half_period
-  elif diff < -half_period:
-    diff += 2 * half_period
-  if direction is not None and direction != 0:
-    if diff < 0 and direction > 0:
-      diff += period
-    elif diff > 0 and direction < 0:
-      diff -= period
-  return diff
+    """
+    Check the minimum angular distance between two angles.
+    Positive if dst is clockwise from src, negative otherwise.
+    """
+    period = 2 * half_period
+    diff = dst % period - src % period
+    if diff > half_period:
+        diff -= 2 * half_period
+    elif diff < -half_period:
+        diff += 2 * half_period
+    if direction is not None and direction != 0:
+        if diff < 0 and direction > 0:
+            diff += period
+        elif diff > 0 and direction < 0:
+            diff -= period
+        return diff
+
+
+def interpolate(*pt: tuple[float, float]):
+    """Linear interpolation using a set of points"""
+    curve = sorted(pt, key=lambda p: p[0])
+    segments = list((curve[i - 1], curve[i]) for i in range(1, len(curve)))
+
+    def fn(x: float) -> float:
+        search = segments.copy()
+        while len(search):
+            i = len(search) // 2
+            (x0, y0), (x1, y1) = search[i]
+            if x < x0:
+                search = search[:i]
+            elif x > x1:
+                search = search[i + 1 :]
+            else:
+                break
+        k0 = (x - x0) / (x1 - x0)
+        k1 = 1 - k0
+        return k1 * y0 + k0 * y1
+
+    return fn
+
+
+def near_zero(value: float, EPS=1e-2):
+    return abs(value) < EPS

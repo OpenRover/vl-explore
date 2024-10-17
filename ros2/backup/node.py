@@ -13,7 +13,7 @@ from std_msgs.msg import Bool
 from cv_bridge import CvBridge
 from numpy import ndarray
 from util.iter import flatten
-from util.math import ang_diff, clamp, sign
+from util.math import ang_diff, clamp, sign, near_zero
 from util.action import Action
 from util.graphics import Region, TextBox
 

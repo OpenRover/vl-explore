@@ -2,6 +2,7 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
+from typing import Callable, Any, overload
 import argparse, torch, sys
 from pathlib import Path
 from termcolor import colored
@@ -42,7 +43,10 @@ class Logger:
         """
         Usage: logger = Logger(__file__)
         """
-        ID = str(Path(src).relative_to(HOME))
+        try:
+            ID = str(Path(src).relative_to(HOME))
+        except:
+            ID = src
         self.debug = logger(ID, "DEBUG", "blue", "cyan", file=file, **kwargs)
         self.verbose = logger(
             ID, "VERBO", "light_grey", "light_grey", file=file, **kwargs
@@ -55,7 +59,7 @@ class Logger:
 log = Logger(__file__)
 
 
-def select_device(override: str | None = args.device) -> torch.device:
+def select_device(override: str | None = args.device):
     kwargs = {}
     if override is not None:
         device = torch.device(override)
@@ -68,14 +72,30 @@ def select_device(override: str | None = args.device) -> torch.device:
         device = torch.device("mkl")
     else:
         device = torch.device("cpu")
+    log.info(f"using device: {device}")
     return device, kwargs
 
 
 device, to_device_args = select_device()
 
 
+@overload
+def to_device(item: torch.Tensor, device=device, **kwargs) -> torch.Tensor: ...
+
+
+@overload
+def to_device(item: torch.nn.Module, device=device, **kwargs) -> torch.nn.Module: ...
+
+
 def to_device(item: torch.Tensor | torch.nn.Module, device=device, **kwargs):
     return item.to(device=device, **to_device_args, **kwargs)
 
 
-log.info(f"using device: {device}")
+def on_device(device=device, **kwargs):
+    def decorator(fn: Callable[[Any], torch.Tensor | torch.nn.Module]):
+        def wrapper(*args, **_kwargs):
+            return to_device(fn(*args, **_kwargs), device=device, **kwargs)
+
+        return wrapper
+
+    return decorator

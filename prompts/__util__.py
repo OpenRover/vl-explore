@@ -10,9 +10,7 @@ from util.env import to_device, Logger
 log = Logger(__file__)
 
 
-def embeddings(
-    prompts: list[tuple[str, float]], dir: Path
-) -> tuple[list[str], torch.Tensor]:
+def embeddings(prompts: list[tuple[str, float]], dir: Path):
     dir.mkdir(parents=True, exist_ok=True)
     # Create unique string representation for all pairs
     prompts = list(prompts)

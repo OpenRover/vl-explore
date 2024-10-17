@@ -20,6 +20,11 @@ setup(
     description="TODO: Package description",
     license="MIT",
     entry_points={
-        "console_scripts": ["ros2 = ros2.main:main"],
+        "console_scripts": [
+            "perception = ros2.perception:main",
+            "correlator = ros2.correlator:main",
+            "navigation = ros2.navigation:main",
+            "recorder   = ros2.recorder:main",
+        ],
     },
 )

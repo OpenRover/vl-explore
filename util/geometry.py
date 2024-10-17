@@ -2,7 +2,8 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
-from typing import overload
+from typing import overload, Callable, Iterable
+from math import sqrt
 from numpy import ndarray
 
 
@@ -10,29 +11,71 @@ def i(x: int | float):
     return int(round(x))
 
 
-class Point2i(tuple[int, int]):
-    def __new__(cls, x, y):
-        return tuple.__new__(cls, (i(x), i(y)))
+def f(x: int | float):
+    return float(x)
+
+
+class Point(tuple):
+    def zip(self, other: int | float | tuple[int | float]):
+        if isinstance(other, Iterable):
+            assert len(self) == len(other), "dimension mismatch"
+            other = self.__class__(*other)
+        else:
+            other = self.__class__(other)
+        return zip(self, other)
+
+    def __new__(cls, san: Callable, *args):
+        if len(args) == 1:
+            args = args * 2
+        elif len(args) > 2:
+            raise ValueError(f"invalid arguments: {args}")
+        return tuple.__new__(cls, tuple(map(san, args)))
 
     def __add__(self, other):
-        if type(other) is int or type(other) is float:
-            return Point2i(*[a + other for a in self])
-        return Point2i(*[a + b for a, b in zip(self, other)])
+        return self.__class__(*[s + o for s, o in self.zip(other)])
 
     def __sub__(self, other):
-        return Point2i(*[a - b for a, b in zip(self, other)])
+        return self.__class__(*[s - o for s, o in self.zip(other)])
 
-    def __mul__(self, scale: float):
-        return Point2i(*[i(v * scale) for v in self])
+    def __mul__(self, other: float):
+        return self.__class__(*[(s * o) for s, o in self.zip(other)])
 
-    def __truediv__(self, scale: float):
-        return Point2i(*[i(v / scale) for v in self])
+    def __truediv__(self, other: float):
+        return self.__class__(*[(s / o) for s, o in self.zip(other)])
 
-    def __floordiv__(self, scale: float):
-        return Point2i(*[i(v // scale) for v in self])
+    def __floordiv__(self, other: float):
+        return self.__class__(*[(s // o) for s, o in self.zip(other)])
 
-    def __mod__(self, scale: float):
-        return Point2i(*[i(v % scale) for v in self])
+    def __mod__(self, other: float):
+        return self.__class__(*[(s % o) for s, o in self.zip(other)])
+
+    def __ge__(self, other):
+        return all(s >= o for s, o in self.zip(other))
+
+    def __gt__(self, other):
+        return all(s > o for s, o in self.zip(other))
+
+    def __le__(self, other):
+        return all(s <= o for s, o in self.zip(other))
+
+    def __lt__(self, other):
+        return all(s < o for s, o in self.zip(other))
+
+    def __pow__(self, other):
+        return self.__class__(*[(s ** o) for s, o in self.zip(other)])
+
+    def norm(self):
+        return sqrt(sum(v**2 for v in self))
+
+
+class Point2i(Point):
+    def __new__(cls, *args):
+        return Point.__new__(cls, i, *args)
+
+
+class Point2f(Point):
+    def __new__(cls, *args):
+        return Point.__new__(cls, f, *args)
 
 
 class Vector2i(tuple[Point2i, Point2i]):

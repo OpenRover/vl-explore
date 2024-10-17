@@ -77,6 +77,9 @@ def encode_image(*images: list[np.ndarray | Image]) -> torch.Tensor:
         # Remove visual model
         del visual_model.transformer
         to_device(visual_model)
+    # Return None if no images are provided
+    if not len(images):
+        return torch.Tensor(0, 512)
     # Preprocess input images
     data: list[torch.Tensor] = []
     for img in images:

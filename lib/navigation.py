@@ -2,8 +2,10 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
+from typing import Type
 import models.clip as clip, cv2, numpy as np
 from prompts import Prompt
+from lib.slicer import Slicer, Slicer2x3, Slicer1x1
 from util.geometry import Region, Point2i as Point
 from util.graphics import TextBox, draw_corners
 from util.env import Logger
@@ -37,55 +39,57 @@ def colorize(score: float):
     return _(bg), _(mg), _(fg)
 
 
+def use(name: str):
+    attr = f"Nav{name}"
+    nav = globals()[attr]
+    assert issubclass(nav, Navigation), f"Invalid use case: {attr}"
+    return nav
+
+
 class Navigation:
 
-    regions: list[Region] = None
+    SlicerType: Type[Slicer]
 
     def __init__(
         self,
+        frame_size: Point,
+        size_limit: Point | int | None,
         prompts: list[Prompt],
-        frame_size: tuple[int, int],
-        size_limit: tuple[int, int] | int | None = None,
         decay: float = 0.5,
     ):
+        self.slicer = self.SlicerType(frame_size, size_limit)
         self.prompts = prompts
         self.decay = decay
-        # Determine frame size
-        # Size of raw camera frame
-        w, h = frame_size
-        # Apply optional size limit
-        size_limit = size_limit or frame_size
-        if isinstance(size_limit, int):
-            size_limit = (size_limit, size_limit)
-        max_w, max_h = size_limit
-        raw_scale = min(w / max_w, h / max_h)
-        if raw_scale > 1:
-            w = int(w / raw_scale)
-            h = int(h / raw_scale)
-        self.frame_size = Point(w, h)
+
+    def font_scale(self):
         # Base font scale for UI elements
-        self.font_scale = min(*self.frame_size) / 800
+        return min(*(self.slicer.size())) / 800
+
+    def thickness(self):
         # Base thickness for UI elements
-        self.thickness = int(round(2.0 * min(*self.frame_size) / 800))
+        return int(round(2.0 * min(*(self.slicer.size())) / 800))
 
     # confidence[prompt_id][tile_id]
     confidence: list[list[float]] = None
 
+    # returns list result[prompt_id][tile_id] = (text, score, confidence)
     def __call__(self, frame: np.ndarray):
-        if frame.shape[:2] != self.frame_size:
-            frame = cv2.resize(frame, self.frame_size)
-        embeddings = clip.encode_image(*[r(frame) for r in self.regions])
+        embeddings = clip.encode_image(*self.slicer(frame))
         scores = list(p(embeddings) for p in self.prompts)
         # Initialize confidence to zero
         if self.confidence is None:
             self.confidence = list([0.0] * len(s) for s in scores)
         # update confidence - running average
         confidence: list[list[float]] = []
+        results: list[list[tuple[str, float, float]]] = []
         for _s, _c in zip(scores, self.confidence):
+            result: list[tuple[str, float, float]] = []
             for i, ((_, s), c) in enumerate(zip(_s, _c)):
                 _c[i] = c * self.decay + s * (1 - self.decay)
+                result.append(_, s, _c[i])
             confidence.append(_c.copy())
-        return scores, confidence, frame
+            results.append(result)
+        return results
 
     def render_region(
         self,
@@ -108,7 +112,7 @@ class Navigation:
                 corners,
                 length=corners.shape[0] // 8,
                 color=mg,
-                thickness=self.thickness * 2,
+                thickness=self.thickness() * 2,
             )
         if t_box is not None:
             for t, va in (
@@ -118,9 +122,9 @@ class Navigation:
                 t_box(
                     frame,
                     t,
-                    scale=self.font_scale,
+                    scale=self.font_scale(),
                     color=fg,
-                    thickness=self.thickness,
+                    thickness=self.thickness(),
                     font=cv2.FONT_HERSHEY_DUPLEX,
                     align="center",
                     vertical_align=va,
@@ -137,8 +141,8 @@ class Navigation:
         """Render the navigation UI on the frame"""
         pred = flatten(pred, 2)
         confidence = flatten(confidence, 2)
-        for p, c, r in zip(pred, confidence, self.regions):
-            offset = self.thickness * 8
+        for p, c, r in zip(pred, confidence, self.slicer.regions):
+            offset = self.thickness() * 8
             c_box = r.offset(Point(-offset, -offset))
             t_box = TextBox(c_box.offset(Point(-offset, -offset)))
             self.render_region(
@@ -147,6 +151,9 @@ class Navigation:
 
 
 class Nav6T1P(Navigation):
+
+    SlicerType = Slicer2x3
+
     def __init__(
         self,
         prompts: list[Prompt],
@@ -155,21 +162,12 @@ class Nav6T1P(Navigation):
         **kwargs,
     ):
         super().__init__(prompts, frame_size, size_limit, **kwargs)
-        w, h = self.frame_size
-        # Fit a 3:2 region in the frame for square boxes
-        s = min(w // 3, h // 2)
-        tl = (self.frame_size - Point(s * 3, s * 2)) / 2
-        # Cropping regions
-        self.regions = [
-            # Far
-            *(Region(*(tl + (x, 0)), s, s) for x in range(0, w - s + 1, s)),
-            # Near
-            *(Region(*(tl + (x, s)), s, s) for x in range(0, w - s + 1, s)),
-        ]
 
 
 class Nav1T3P(Navigation):
 
+    SlicerType = Slicer1x1
+
     def __init__(
         self,
         prompts: list[Prompt],
@@ -178,12 +176,6 @@ class Nav1T3P(Navigation):
         **kwargs,
     ):
         super().__init__(prompts, frame_size, size_limit, **kwargs)
-        w, h = self.frame_size
-        # Fit a 3:2 region in the frame for square boxes
-        s = min(w, h)
-        tl = (self.frame_size - Point(s, s)) / 2
-        # Cropping regions
-        self.regions = [Region(*tl, s, s)]
 
     def render(
         self,
@@ -193,7 +185,7 @@ class Nav1T3P(Navigation):
     ):
         region = self.regions[0]
         vec = Point(region.w // 3, 0)
-        offset = self.thickness * 8
+        offset = self.thickness() * 8
         offset = Point(-offset, -offset)
         pl, pc, pr = flatten(pred, 2)
         cl, cc, cr = flatten(confidence, 2)
