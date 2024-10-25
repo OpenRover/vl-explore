@@ -26,7 +26,7 @@ class VideoCapture(cv2.VideoCapture):
             assert type(frame) is ndarray
             yield frame
         self.release()
-    
+
     def __len__(self):
         return int(self.get(cv2.CAP_PROP_FRAME_COUNT))
 

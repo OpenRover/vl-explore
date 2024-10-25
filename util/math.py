@@ -38,12 +38,25 @@ def ang_diff(src: float, dst: float, half_period=180.0, direction=None) -> float
             diff += period
         elif diff > 0 and direction < 0:
             diff -= period
-        return diff
+    return diff
 
 
 def interpolate(*pt: tuple[float, float]):
     """Linear interpolation using a set of points"""
-    curve = sorted(pt, key=lambda p: p[0])
+    def clean(l):
+        if len(l) < 2:
+            return l
+        (x0, last_y), *l = l
+        v = [last_y]
+        for x, y in l:
+            if x != x0:
+                yield (x0, sum(v) / len(v))
+                x0, v = x, [y]
+            else:
+                v.append(y)
+        yield (x0, sum(v) / len(v))
+
+    curve = list(clean(sorted(pt, key=lambda p: p[0])))
     segments = list((curve[i - 1], curve[i]) for i in range(1, len(curve)))
 
     def fn(x: float) -> float:

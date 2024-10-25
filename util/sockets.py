@@ -2,230 +2,324 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
-import errno, time, sys
-from socket import socket, AF_UNIX, SOCK_STREAM, error as socket_error
+# Multi-thread daemonized Unix socket server and client (line based protocol).
+# ==============================================================================
+import errno, time, atexit
+from typing import Generator, Iterable, TypeVar, Generic
+from socket import socket, AF_UNIX, SOCK_STREAM
 from pathlib import Path
+from io import BufferedIOBase
+
+from .transport import Transport
+from .logger import Logger
+from .exception import Expect, no_throw
+from . import JSON
+
+logger = Logger(__file__)
+
+P = TypeVar("P")
+
+class Protocol(Generic[P]):
+    sep: str = ","
+    end: str = "\n"
+
+    @classmethod
+    def encode(cls, item: P) -> Generator[str, None, None]:
+        raise NotImplementedError
+
+    @classmethod
+    def decode(cls, line: str) -> Generator[P, None, None]:
+        raise NotImplementedError
 
 
-class DefaultLogger:
-    def info(self, *msg: str):
-        print("[INFO] ", *msg)
+class DefaultProtocol(Protocol[str]):  # Python print-like dummy protocol
+    sep: str = ","
+    end: str = ""
 
-    def warn(self, *msg: str):
-        print("[WARN] ", *msg)
+    @classmethod
+    def encode(cls, item):
+        yield item
 
-    def error(self, *msg: str):
-        print("[ERROR]", *msg, file=sys.stderr)
+    @classmethod
+    def decode(cls, line):
+        yield line
+
+
+class JsonProtocol(Protocol[P]):
+    sep: str = ","
+    end: str = "\n"
+
+    @classmethod
+    def to_items(cls, item: P) -> Iterable:
+        assert isinstance(item, Iterable)
+        yield from item
+
+    @classmethod
+    def from_items(cls, items: list) -> Generator[P, None, None]:
+        yield items
+
+    @classmethod
+    def encode(cls, item: P):
+        assert isinstance(item, Iterable), f"Item <{item}> not iterable"
+        for item in cls.to_items(item):
+            yield JSON.stringify(item)
+
+    @classmethod
+    def decode(cls, line: str):
+        try:
+            line = f"[{line}]"
+            result: list = JSON.parse(line)
+            yield from cls.from_items(result)
+        except Exception as e:
+            logger.debug(f"[Protocol {cls.__name__}] Failed to parse line: {e}")
+            L = 128
+            if len(line) > L:
+                line = line[:L] + f" ({len(line) - L} chars omitted) ..."
+            logger.debug(f"Line content: {line}")
 
 
 class Readlines:
-    buffer: bytes = b""
+    def __init__(self, block_size: int = 4096):
+        self.buffer = ""
+        self.block_size = block_size
 
-    def __call__(self, s: socket):
-        while True:
-            try:
-                byte = s.recv(1)
-                if not byte:
+    def __call__(self, s: socket | BufferedIOBase):
+        try:
+            if isinstance(s, socket):
+                byte = s.recv(self.block_size)
+            else:
+                assert hasattr(s, "read"), f"{s} has no read method"
+                byte = s.read(self.block_size)
+                if byte is None:
                     return
-                if byte == b"\n":
-                    yield self.buffer.decode(encoding="utf-8")
-                    self.buffer = b""
-                else:
-                    self.buffer += byte
-            except socket_error as e:
-                err = e.args[0]
-                if err in (errno.EAGAIN, errno.EWOULDBLOCK):
-                    return
-                if err == errno.ECONNRESET:
-                    s.close()
-                    return
-                else:
-                    raise err
+            if not len(byte):
+                raise OSError(errno.ECONNABORTED)
+            self.buffer += byte.decode(encoding="utf-8")
+            if "\n" in self.buffer:
+                lines = self.buffer.split("\n")
+                self.buffer = lines.pop()
+                for line in lines:
+                    yield line + "\n"
+        except TimeoutError:
+            return
+        except OSError as e:
+            reason = e.args[0]
+            if reason in (errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT):
+                return
+            if reason in (errno.ECONNRESET, errno.ECONNABORTED):
+                s.close()
+                return
+            else:
+                raise RuntimeError(f"Readlines error: {type(reason)} {reason}")
 
 
-class Server:
-    def __init__(self, path: Path, logger=DefaultLogger()):
+class SocketTransport(Transport[P, P]):
+    logger: Logger = logger
+    RX: bool = True
+    TX: bool = True
+
+    def __init__(self, path: Path, protocol: type[Protocol[P]] = DefaultProtocol, **kw):
+        super().__init__(**kw)
+        assert issubclass(protocol, Protocol)
+        self.protocol = protocol
+        assert isinstance(path, Path)
         self.path = path
-        assert not path.exists(), f"Socket {path} already exists"
+        self.sockets: set[tuple[socket, Readlines]] = set()
+        atexit.register(self.close)
+    
+    def __str__(self):
+        return f"{self.__class__.__name__}(UNIX:{self.path.name})"
+
+    def __repr__(self):
+        return str(self)
+
+    def spin(self):
+        # Remove disconnected clients
+        inactive: set[socket] = set()
+        for item in self.sockets:
+            c, rl = item
+            if c.fileno() == -1:
+                inactive.add(item)
+        self.sockets.difference_update(inactive)
+        del inactive
+        # Only read from clients if RX is enabled
+        if not self.RX:
+            return
+        # Dump all incoming messages
+        for s, rl in self.sockets:
+            for line in rl(s):
+                try:
+                    yield from self.protocol.decode(line)
+                except Exception as e:
+                    name = self.protocol.__name__
+                    self.logger.debug(f"Protocol {name} decode error: {e}")
+
+    def transform(self, item: P):
+        # Only send to clients if TX is enabled
+        if not self.TX:
+            raise RuntimeError(f"TX disabled on {self}")
+        # Encode and send a message
+        protocol = self.protocol
+        try:
+            encoded = protocol.encode(item)
+        except Exception as e:
+            name = protocol.__name__
+            self.logger.debug(f"Protocol {name} encode error: {e}")
+            return
+        if type(encoded) is str:
+            msg = encoded
+        elif isinstance(encoded, Iterable):
+            msg = protocol.sep.join(encoded) + protocol.end
+        else:
+            logger.debug(f"Error handling protocol: {protocol.__name__}")
+            logger.debug(f"Encoder produced: {encoded}")
+            return
+        # Broadcast outgoing message to all connections
+        for s, rl in self.sockets:
+            try:
+                s.sendall(msg.encode())
+            except TimeoutError:
+                pass
+            except OSError as e:
+                err = e.args[0]
+                if err in (errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT):
+                    pass
+                else:
+                    self.logger.debug(f"Failed to send message: {e}")
+                    s.close()
+
+    def __iter__(self):
+        # Iterate through queued messages (never-ending)
+        yield from self()
+
+    def close(self):
+        self.stop()
+        for s, _ in self.sockets:
+            s.close()
+
+
+class Server(SocketTransport[P]):
+    def __init__(self, path: Path, protocol: type[Protocol[P]] = DefaultProtocol, **kw):
+        super().__init__(path, protocol, **kw)
+        if self.path.exists():
+            self.logger.debug(f"Socket {path} already exists")
+            raise FileExistsError(path)
         self.server = socket(AF_UNIX, SOCK_STREAM)
         self.server.setblocking(False)
         self.server.bind(str(path))
-        logger.info(f"Socket server listening on unix:{path}")
-        self.clients: list[tuple[socket, Readlines]] = []
-        self.logger = logger
-        self.check_clients()
+        self.logger.debug(f"{self} started")
 
-    def __del__(self):
-        if hasattr(self, "server"):
-            self.server.close()
-        if self.path.exists():
-            self.path.unlink()
-
-    def check_clients(self):
-        # Remove disconnected clients
-        self.clients = [
-            (client, rl) for client, rl in self.clients if client.fileno() != -1
-        ]
+    def spin(self):
         # Accept all incoming connections
         while True:
             try:
                 self.server.listen()
                 client, _ = self.server.accept()
-                client.setblocking(False)
-                self.clients.append((client, Readlines()))
-            except socket_error as e:
+                client.settimeout(1e-3)
+                self.sockets.add((client, Readlines()))
+                self.logger.debug(f"{self} accepted new connection")
+            except TimeoutError:
+                break
+            except OSError as e:
                 err = e.args[0]
-                if err == errno.EAGAIN:
+                if err in (errno.EAGAIN, errno.ETIMEDOUT):
                     break
                 else:
                     raise e
+        yield from super().spin()
 
-    def __call__(self, *msgs: str, sep: str = ",", end: str = "\n"):
-        self.check_clients()
-        msg = sep.join(map(str, msgs)) + end
-        for client, _ in self.clients:
-            try:
-                client.sendall(msg.encode())
-            except socket_error as e:
-                err = e.args[0]
-                if err == errno.EAGAIN:
-                    pass
-                else:
-                    self.logger.error(f"Failed to send message: {e}")
-                    client.close()
-
-    def readlines(self):
-        self.check_clients()
-        for client, rl in self.clients:
-            yield from rl(client)
-
-    def __iter__(self):
-        return self.readlines()
+    def __del__(self):
+        with Expect():
+            super().__del__()
+        self.close()
 
     def close(self):
-        self.server.close()
-        self.logger.warn(f"Disconnected from unix:{self.path}")
+        super().close()
+        if hasattr(self, "server"):
+            no_throw(self.server.close)()
+            no_throw(self.path.unlink)()
+            del self.server
+            self.logger.debug(f"{self} closed")
 
 
-class Client:
-    """
-    A simple Unix socket client that robustly connects to a Unix socket server.
-    It automatically reconnects if the socket is not available or closed.
-    """
-
-    def __init__(self, path: Path, logger=DefaultLogger()):
-        self.path = path
-        self.client = None
-        self.logger = logger
-        self.rl = Readlines()
+class Client(SocketTransport[P]):
+    def __init__(self, path: Path, protocol: type[Protocol[P]] = DefaultProtocol, **kw):
+        super().__init__(path, protocol, **kw)
 
     report_missing_socket = True
-    last_attempt = time.time()
+    last_attempt: float = time.time()
+    retry_interval: float = 1.0
 
-    def check_socket(self, rate_limit=0.2):
-        if self.client is not None and self.client.fileno() == -1:
-            self.reset_socket()
-        if self.client is not None:
-            return True
+    def spin(self):
+        # Normal operation
+        if len(self.sockets):
+            yield from super().spin()
+        # Check if there is at least one active connection
+        if len(self.sockets):
+            return
         # Set the path for the Unix socket
         if not self.path.exists():
             if self.report_missing_socket:
-                self.logger.info(f"Waiting for socket unix:{self.path}")
+                self.logger.debug(f"{self} waiting for server ...")
                 self.report_missing_socket = False
-            return False
+            return
         else:
             self.report_missing_socket = True
         # Reconnect rate throttling
         now = time.time()
-        should_retry = now - self.last_attempt > rate_limit
+        should_retry = now - self.last_attempt > self.retry_interval
         if not should_retry:
-            return False
+            return
         else:
             self.last_attempt = now
         # Create the Unix socket server
-        self.client = socket(AF_UNIX, SOCK_STREAM)
+        client = socket(AF_UNIX, SOCK_STREAM)
         # Set the socket to non-blocking mode
-        self.client.setblocking(False)
+        client.setblocking(False)
         # Bind the socket to the path
-        self.logger.info(f"Connecting to unix:{self.path}")
+        self.logger.debug(f"{self} trying to connect")
         try:
-            self.client.connect(str(self.path))
-        except socket_error as e:
+            client.connect(str(self.path))
+            self.logger.debug(f"{self} connected")
+            self.sockets.add((client, Readlines()))
+            return
+        except TimeoutError:
+            self.logger.debug(f"{self} connection timed out")
+        except OSError as e:
             match e.args[0]:
                 case errno.ECONNREFUSED:
-                    self.logger.error(f"Connection refused to unix:{self.path}")
+                    self.logger.debug(f"{self} connection refused")
                 case errno.ENOENT:
-                    self.logger.error(f"Socket unix:{self.path} not found")
+                    self.logger.debug(f"{self} not exist")
                 case _:
-                    self.logger.error(f"Failed to connect to unix:{self.path}", e)
-            self.client.close()
-            self.client = None
-            return False
-        self.logger.info(f"Connected to unix:{self.path}")
-        return True
-
-    def reset_socket(self):
-        if self.client is not None:
-            self.client.close()
-        self.client = None
-        self.logger.warn(f"Disconnected from unix:{self.path}")
-
-    def __call__(self, *msgs: str, sep: str = ",", end: str = "\n"):
-        msg = sep.join(map(str, msgs)) + end
-        if not self.check_socket():
-            return
-        try:
-            self.client.sendall(msg.encode())
-        except Exception as e:
-            self.logger.error(f"Failed to send message: {e}")
-            self.reset_socket()
-
-    def readlines(self):
-        """
-        Read socket byte by byte until line feed is encountered, non-blocking.
-        Returns None if no data is available.
-        """
-        if not self.check_socket():
-            return
-        try:
-            yield from self.rl(self.client)
-        except socket_error as e:
-            err = e.args[0]
-            if err in (errno.EAGAIN, errno.EWOULDBLOCK):
-                return
-            else:
-                raise e
-        except Exception:
-            self.reset_socket()
-
-    def __iter__(self):
-        return self.readlines()
+                    self.logger.debug(f"{self} failed to connect: {e}")
+        client.close()
 
 
 # Example usage
 if __name__ == "__main__":
-    import argparse
+    import argparse, sys
 
+    name = Path(__file__).stem
     parser = argparse.ArgumentParser()
     parser.add_argument("role", nargs="?", choices=["client", "server"])
-    parser.add_argument("--path", default="/tmp/rover-master.sock", type=str)
+    parser.add_argument("--path", default=f"/tmp/{name}.sock", type=str)
     args = parser.parse_args()
-    role: str = args.role
     path = Path(args.path)
-    if role == "server":
-        server = Server(path)
-        while True:
-            server("Hello from server!")
-            time.sleep(0.5)
-            for line in server:
-                server.logger.info(f"Received: {line}")
-    elif role == "client":
-        client = Client(path)
-        while True:
-            client("Hello from client!")
-            for line in client:
-                client.logger.info(f"Received: {line}")
-            time.sleep(0.5)
-    else:
-        print("Invalid role", role)
-        sys.exit(1)
+    sock: SocketTransport[str]
+    match str(args.role).lower():
+        case "server":
+            sock = Server(path).start()
+        case "client":
+            sock = Client(path).start()
+        case _:
+            logger.debug("Invalid role: " + args.role)
+            sys.exit(1)
+    sock(sys.stdout)
+    with Expect(KeyboardInterrupt):
+        for line in sys.stdin:
+            sock.send(line)
+        logger.debug("Reached end of file")
+        sys.exit(0)
+    print(file=sys.stderr)
+    logger.debug("Received keyboard interrupt")

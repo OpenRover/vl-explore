@@ -9,20 +9,22 @@
 from numpy import ndarray, array, zeros
 from torch import from_numpy
 
-from . import Node, ros_entry, ok, spin_once
-from . import socket_perception, socket_correlator
 from . import protocol
+from ..utils import Node, ros_entry, Count
+
+import models.clip as clip
 
 from util import types
-from util.sockets import Server, Client
+from util.env import CWD, select_device, to_device
+from util.sockets import SocketTransport, Server, Client
 from util.timer import Timer
+from util.exception import Expect
+from util.queue import Queue
 from prompts import Prompt
-import models.clip as clip
-import util.env as env
 
 
 class DataBase:
-    threshold: float = 0.9
+    threshold: float = 0.8
 
     def block(self) -> ndarray:
         return zeros((self.block_size, self.width), dtype=self.dtype)
@@ -47,6 +49,7 @@ class DataBase:
         # x: (N, 512)
         if not isinstance(x, ndarray):
             x = array(x, dtype=self.dtype)
+        N, _ = x.shape
         familiarity: list[float] = []
         if len(self):
             assert self.heads is not None
@@ -77,6 +80,7 @@ class DataBase:
                     self.heads[n] = self.merge(idx, v)
                 else:
                     self.heads[n] = self.append(v)
+                    familiarity.append(float(c[idx]))
         else:
             self.heads = [0] * len(x)
             self.counts = []
@@ -92,6 +96,7 @@ class DataBase:
                         self.heads[n] = self.append(v)
                 familiarity.append(0.0)
         # Return familiarity
+        assert len(familiarity) == N, f"{len(familiarity)} != {N}"
         return familiarity
 
     def database(self):
@@ -125,7 +130,7 @@ def correlate(embeddings: ndarray, prompts: list[Prompt], database: DataBase):
     """
     Perform correlation between embeddings, text prompts and history db.
     """
-    t = from_numpy(embeddings.copy())
+    t = to_device(from_numpy(embeddings.copy()))
     scores = list(p(t) for p in prompts)
     correlation: list[list[types.Correlation]] = [[] * len(scores)]
     for tile_id, familiarity in enumerate(database(embeddings)):
@@ -136,27 +141,42 @@ def correlate(embeddings: ndarray, prompts: list[Prompt], database: DataBase):
     return correlation
 
 
+class Correlator(Node):
+
+    input: SocketTransport[types.PerceptionStamped]
+    output: SocketTransport[types.CorrelationStamped]
+
+    def __init__(self):
+        super().__init__("correlator")
+        self.mixer = self.strategy.MotionMixer()
+        # I/O Sockets
+        kw = dict(logger=self.get_logger())
+        self.input = Client(CWD / "perception.socket", protocol.Perception, **kw)
+        self.input.start()
+        self.output = Server(CWD / "correlation.socket", protocol.Correlation, **kw)
+        self.output.start()
+
+
 @ros_entry
 def main():
-    node = Node("correlator")
+
+    node = Correlator()
     logger = protocol.logger = node.get_logger()
-    input = Client(socket_perception, logger=logger)
-    output = Server(socket_correlator, logger=logger)
-    database: list[DataBase] = None
 
-    prompts = node.strategy.prompts()
-    clip.text_model = None
-    for prompt in prompts:
-        prompt.to("cpu")
+    prompts = [p.to("cpu") for p in node.strategy.prompts()]
+    clip.deinit()
+    select_device("cpu", reselect=True)
 
-    while ok():
-        spin_once(node, timeout_sec=0)
-        for timestamp, embeddings in protocol.Perception.decode(input):
-            if database is None:
-                _, width = embeddings.shape
-                dtype = embeddings.dtype
-                database = DataBase(width, dtype=dtype)
-            with Timer(print=logger.info, origin=timestamp):
-                results = correlate(embeddings, prompts, database)
-            output(*protocol.Correlation.encode(timestamp, results))
+    input = node.input()
+    ts, embeddings = input.get()
+    _, width = embeddings.shape
+    dtype = embeddings.dtype
+    database = DataBase(width, dtype=dtype)
+
+    count = Count()
+    with Expect(KeyboardInterrupt), Queue.Loop():
+        for timestamp, embeddings in input:
+            with Timer(*count("Correlate".ljust(10)), print=logger.debug, origin=timestamp):
+                correlation = correlate(embeddings, prompts, database)
+            node.output.send((timestamp, correlation))
     return node

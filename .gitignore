@@ -30,3 +30,6 @@ __MACOSX
 
 # Windows
 Thumbs.db
+
+# Temporary files
+test.py

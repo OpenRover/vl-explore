@@ -6,16 +6,12 @@ import torch
 from numpy import ndarray
 from pathlib import Path
 from .__util__ import load_from, embeddings
+from torch import no_grad
 
 DIR = Path(__file__).parent
 
 
 class Prompt:
-    def to(self, device: str | torch.device):
-        self.weights = self.weights.to(device)
-        self.embeddings = self.embeddings.to(device)
-        self.embeddings_transposed = self.embeddings_transposed.to(device)
-
     def __init__(self, name: str, *objects: str, **lv0: str):
         prompts = load_from(DIR, f"{name}.yaml", *objects, **lv0)
         dir = DIR / "__cache__"
@@ -23,6 +19,7 @@ class Prompt:
         # Transpose embeddings to shape (512, N)
         self.embeddings_transposed: torch.Tensor = self.embeddings.T
 
+    @no_grad()
     def __call__(self, pred: torch.Tensor | ndarray):
         """
         Match the closest prompt to each prediction,
@@ -31,7 +28,9 @@ class Prompt:
         Output: [str] * N, float tensor of shape (N,)
         """
         if isinstance(pred, ndarray):
-            pred = torch.from_numpy(pred).to(self.embeddings.device)
+            pred = torch.from_numpy(
+                pred.copy(), device=self.embeddings_transposed.device
+            )
         score = pred @ self.embeddings_transposed
         score *= self.weights
         idx: list[int] = torch.argmax(torch.abs(score), dim=1).cpu().numpy().tolist()
@@ -40,3 +39,10 @@ class Prompt:
     def __iter__(self):
         for i, text in enumerate(self.prompts):
             yield text, self.embeddings[i : i + 1]
+
+    def to(self, device: str | torch.device):
+        device = torch.device(device)
+        self.weights = self.weights.to(device)
+        self.embeddings = self.embeddings.to(device)
+        self.embeddings_transposed = self.embeddings_transposed.to(device)
+        return self

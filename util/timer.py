@@ -1,6 +1,10 @@
+# ==============================================================================
+# Author: Yuxuan Zhang (robotics@z-yx.cc)
+# License: MIT
+# ==============================================================================
 import sys
 from typing import Callable
-from time import time as now
+from time import perf_counter as perf, time as now
 
 
 def log(*args):
@@ -8,15 +12,15 @@ def log(*args):
 
 
 UNIT = "s"
-UNIT_UP = [("m", 60), ("h", 60), ("d", 24), ("w", 7), ("y", 52)]
+UNIT_UP = [("min", 60), ("hr", 60), ("day", 24)]
 UNIT_DN = [("ms", 1000), ("us", 1000), ("ns", 1000)]
 
 class Duration:
     def __init__(self, duration: float):
         self.duration = duration
 
-    def format(self, width: int = 6):
-        t = self.duration
+    @staticmethod
+    def format(t: float, width: int = 6):
         unit = UNIT
         t, sign = abs(t), "-" if t < 0 else " "
         if t < 1.0:
@@ -36,7 +40,7 @@ class Duration:
         return f"{sign}{t} {u}"
 
     def __str__(self):
-        return self.format()
+        return self.format(self.duration)
 
 
 class Timer:
@@ -47,13 +51,13 @@ class Timer:
         self.origin = origin
 
     def __enter__(self):
-        self.start = now()
+        self.start = perf()
 
     def __exit__(self, *_, **__):
         msg = []
         if self.name:
             msg.append(self.name)
-        msg.append(f"took {Duration(now() - self.start)}")
+        msg.append(f"took {Duration(perf() - self.start)}")
         if self.origin is not None:
             msg.append(",")
             msg.append(f"delay {Duration(now() - self.origin)}")

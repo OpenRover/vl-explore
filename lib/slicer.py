@@ -1,3 +1,4 @@
+from typing import TypeVar, Generator
 from numpy import ndarray
 from cv2 import resize, INTER_LINEAR
 
@@ -7,6 +8,9 @@ from util.geometry import Point2i as Point
 
 def shape(frame: ndarray):
     return Point(*frame.shape[:2][::-1])
+
+
+ArrayLike = TypeVar("ArrayLike")
 
 
 class Slicer:
@@ -29,7 +33,10 @@ class Slicer:
             self.max_size = None
         self.update_size_limit()
 
-    def __call__(self, frame: ndarray):
+    def __len__(self):
+        return len(self.regions)
+
+    def __call__(self, frame: ArrayLike) -> Generator[ArrayLike, None, None]:
         frame_size = shape(frame)
         if self.frame_size != frame_size:
             self.regions.clear()
@@ -42,7 +49,8 @@ class Slicer:
         if not len(self.regions):
             self.update_slice_regions()
             assert len(self.regions), "No regions to slice"
-        return (r(frame) for r in self.regions)
+        for region in self.regions:
+            yield region(frame)
 
     def update_size_limit(self):
         if self.max_size is not None:
@@ -53,6 +61,7 @@ class Slicer:
                 self.scaled_size = None
         else:
             self.scaled_size = None
+        self.update_slice_regions()
 
     def size(self):
         return self.scaled_size or self.frame_size

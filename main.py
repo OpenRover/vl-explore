@@ -9,7 +9,8 @@ import models.clip as clip, cv2
 from prompts import Prompt
 from util.video import VideoWriter, VideoCapture
 from util.iter import skip
-from util.env import Logger, args, HOME
+from util.logger import Logger
+from util.env import args, HOME
 import lib.navigation as Nav
 
 log = Logger(__file__)
@@ -23,7 +24,6 @@ w, h = video.size
 
 prompts = Prompt("navigation"),
 # prompts = Prompt("nav-left"), Prompt("nav-center"), Prompt("nav-right")
-clip.text_model = None  # Release CLIP text model from memory
 nav = Nav.Nav6T1P(prompts, (w, h), (1280, 720))
 # nav = Nav.Nav1T3P(prompts, (w, h), (1280, 720))
 

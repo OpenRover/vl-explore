@@ -4,8 +4,9 @@
 # ==============================================================================
 import hashlib, yaml, torch, re, itertools
 from pathlib import Path
-from models.clip import encode_text
-from util.env import to_device, Logger
+import models.clip as clip
+from util.logger import Logger
+from util.env import select_device
 
 log = Logger(__file__)
 
@@ -23,8 +24,9 @@ def embeddings(prompts: list[tuple[str, float]], dir: Path):
     path = dir / f"{hash}.pt"
     embeddings: torch.Tensor = None
     if not path.exists():
+        select_device()
         log.info(f"Encoding new prompts (hash={hash}, count={len(prompts)})")
-        embeddings = encode_text(*prompts)
+        embeddings = clip.encode_text(*prompts)
         torch.save(embeddings, path)
         # Save as text
         with open(dir / f"{hash}.txt", "w") as txt:
@@ -33,8 +35,7 @@ def embeddings(prompts: list[tuple[str, float]], dir: Path):
     else:
         log.info(f"Loading prompts from disk (hash={hash})")
         embeddings = torch.load(path, weights_only=True)
-    weights = to_device(torch.tensor(weights, dtype=torch.float32))
-    embeddings = to_device(embeddings)
+    weights = torch.tensor(weights, dtype=embeddings.dtype)
     return prompts, weights, embeddings
 
 

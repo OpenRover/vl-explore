@@ -2,7 +2,7 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
-from typing import overload, Callable, Iterable
+from typing import overload, Callable, Iterable, TypeVar
 from math import sqrt
 from numpy import ndarray
 
@@ -62,7 +62,7 @@ class Point(tuple):
         return all(s < o for s, o in self.zip(other))
 
     def __pow__(self, other):
-        return self.__class__(*[(s ** o) for s, o in self.zip(other)])
+        return self.__class__(*[(s**o) for s, o in self.zip(other)])
 
     def norm(self):
         return sqrt(sum(v**2 for v in self))
@@ -90,6 +90,9 @@ class Vector2i(tuple[Point2i, Point2i]):
 
     def __mul__(self, scale: float):
         return Vector2i(*[v * scale for v in self])
+
+
+ArrayLike = TypeVar("ArrayLike")
 
 
 class Region:
@@ -134,7 +137,7 @@ class Region:
         self.slice_x = slice(x1, x2)
         self.slice_y = slice(y1, y2)
 
-    def __call__(self, frame: ndarray) -> ndarray:
+    def __call__(self, frame: ArrayLike) -> ArrayLike:
         return frame[self.slice_y, self.slice_x]
 
     def corners(self):

@@ -21,10 +21,11 @@ setup(
     license="MIT",
     entry_points={
         "console_scripts": [
-            "perception = ros2.perception:main",
-            "correlator = ros2.correlator:main",
-            "navigation = ros2.navigation:main",
-            "recorder   = ros2.recorder:main",
+            "perception = ros2.threads.perception:main",
+            "correlator = ros2.threads.correlator:main",
+            "navigation = ros2.threads.navigation:main",
+            "recorder   = ros2.threads.recorder:main",
+            "node       = ros2.node:main",
         ],
     },
 )
