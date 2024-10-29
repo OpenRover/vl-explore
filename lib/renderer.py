@@ -6,7 +6,11 @@ from .slicer import Slicer
 from util.iter import flatten
 from util.geometry import Region, Point2i as Point
 from util.graphics import TextBox, draw_corners
+from util.math import project
 from util.colors import *
+
+proj_nav = project((-0.33, +0.33), (-1.0, 1.0), clamp=True)
+proj_fam = project((1.0, 0.5), (-1.0, 1.0), clamp=True)
 
 
 def colorize(score: float, c1=WHITE, c2=BLACK, light: bool = True):
@@ -58,11 +62,11 @@ class Renderer:
 
     def font_scale(self, factor: float = 1.0):
         # Base font scale for UI elements
-        return factor * min(*(self.slicer.size())) / 800
+        return factor * min(*(self.slicer.size())) / 1000
 
     def thickness(self, factor: float = 1.0):
         # Base thickness for UI elements
-        return int(round(factor * 2.0 * min(*(self.slicer.size())) / 800))
+        return int(round(factor * min(*(self.slicer.size())) / 600))
 
     def region(
         self,
@@ -72,17 +76,23 @@ class Renderer:
         background: Region = None,
         corners: Region = None,
     ):
-        text, navigability, familiarity = pred
+        text, navigability, familiarity, stddev = pred
 
         if background is not None:
             light = background(frame).mean() > 64
         else:
             light = True
 
-        bg, mg, fg = mix(
-            colorize(navigability * 2, GREEN, RED, light=light),
-            colorize(familiarity - 0.5, BLUE, RED, light=light),
-        )
+        if abs(navigability) <= 1e-4 or stddev < 0.1:
+            # Region is invalid, render in grayscale
+            bg, mg, fg = u8(colorize(0, GRAY, GRAY, light=light))
+        else:
+            bg, mg, fg = u8(
+                mix(
+                    colorize(proj_nav(navigability), GREEN, RED, light=light),
+                    colorize(proj_fam(familiarity), BLUE, RED, light=light),
+                )
+            )
 
         if background is not None:
             rect = np.ones((*background.shape, 3))
@@ -99,6 +109,7 @@ class Renderer:
             )
         if t_box is not None:
             for t, va in (
+                (f"STDDEV {stddev:.2f}", "top"),
                 (text, "middle"),
                 (f"N {navigability:.2f} | F {familiarity:.2f}", "bottom"),
             ):
@@ -123,7 +134,8 @@ class Renderer:
         blurred: ndarray | None = None,
     ):
         t, r = self.banner_t_box, self.banner_region
-        frame[r.slice_y, r.slice_x] = r(blurred or frame) * 0.6
+        bg = frame if blurred is None else blurred
+        frame[r.slice_y, r.slice_x] = r(bg) * 0.6
         t(frame, text, color=color)
 
     def stats(
@@ -134,11 +146,12 @@ class Renderer:
         blurred: ndarray | None = None,
     ):
         t, r = self.stats_t_box, self.stats_region
-        frame[r.slice_y, r.slice_x] = r(blurred or frame) * 0.6
+        bg = frame if blurred is None else blurred
+        frame[r.slice_y, r.slice_x] = r(bg) * 0.6
         t(frame, text, color=color)
 
     def blur(self, frame: np.ndarray):
-        sigma = min(*(frame.shape)) / 400
+        sigma = min(*(frame.shape)) / 100
         return cv2.GaussianBlur(frame, (0, 0), sigma)
 
 

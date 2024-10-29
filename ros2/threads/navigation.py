@@ -2,7 +2,7 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
-from math import sqrt
+import numpy as np
 from time import time as now
 from std_msgs.msg import Bool
 from nav_msgs.msg import Odometry
@@ -20,6 +20,7 @@ from ..utils import (
     TimeStamp,
     Count,
     Ramp,
+    center,
 )
 
 from util import types
@@ -53,7 +54,7 @@ class Navigation(TrapDetector, Action.Hub, Node):
         self.declare_parameter("trap_duration", 5.0)
         self.trap_duration = float(self.get_parameter("trap_duration").value)
         # Distance (meters) within which the robot is considered being trapped
-        self.declare_parameter("trap_distance", 0.5)
+        self.declare_parameter("trap_distance", 0.3)
         self.trap_distance = float(self.get_parameter("trap_distance").value)
         # Accumulator for travel distance in given duration
         self.accumulator = TravelAccumulator(self.trap_duration)
@@ -67,75 +68,107 @@ class Navigation(TrapDetector, Action.Hub, Node):
             spin_once(self)
 
     vel: types.Motion = (0.0, 0.0, 0.0)
-    rmp: tuple[Ramp] = Ramp(0.5), Ramp(0.5), Ramp(0.5)
-    msg: str | None = None
+    rmp: tuple[Ramp] = Ramp(0.1), Ramp(0.1), Ramp(0.1)
     decision_delay: float = 0.0
 
-    def motion(self, vel: types.Motion=None, msg=None):
+    msg: str | None = None  # Used to log message to console
+    last_msg: str = None  # Used to repeat msg to socket
+
+    def motion(self, vel: types.Motion = None, msg=None):
         if vel is not None:
-            self.vel = tuple(map(float, vel)) # Terminal speed demanded
-            vx, vy, vz = [r(v) for r, v in zip(self.rmp, vel)]
+            self.vel = tuple(map(float, vel))  # Terminal speed demanded
+            vx, vy, vr = [r(v) for r, v in zip(self.rmp, vel)]
         else:
-            vx, vy, vz = map(float, self.vel)
+            vx, vy, vr = (r.get() for r in self.rmp)
         # Apply ramping
         motion = Twist()
         motion.linear.x = vx
         motion.linear.y = vy
-        motion.angular.z = vz
+        motion.angular.z = vr
         self.motion_pub.publish(motion)
         # Assemble navigation message for socket communication
-        self.output.send((now(), self.decision_delay, self.vel, msg))
-        self.msg = msg
+        self.output.send(
+            (now(), self.decision_delay, (vx, vy, vr), msg or self.last_msg)
+        )
+        if msg is not None:
+            self.last_msg = self.msg = msg
 
     def handle_halt_msg(self, halt: Bool):
         self.declare_trapped("halt", halt.data, now())
 
     attitude: tuple[float, tuple[float, float, float]] = None
+    location: Point2f = Point2f(0.0, 0.0)
 
     def handle_odom_msg(self, msg: Odometry):
         ts = TimeStamp(msg.header.stamp).count
         att = attitude_from_quaternion(msg.pose.pose.orientation)
         self.attitude = (ts, att)
-        loc = Point2f(msg.pose.pose.position.x, msg.pose.pose.position.y)
-        travel = self.accumulator.update(ts, loc)
+        self.location = Point2f(msg.pose.pose.position.x, msg.pose.pose.position.y)
+        travel = self.accumulator.update(ts, self.location)
         if travel is not None:
-            distance = travel.norm()
-            if distance < self.trap_distance:
-                self.declare_trapped("odometry", True, ts)
-            else:
-                self.declare_trapped("odometry", False, ts)
+            trapped = travel.norm() < self.trap_distance
         else:
             # Odometry not initialized, assume free to move
-            self.declare_trapped("odometry", False, ts)
+            trapped = False
+        self.declare_trapped("odometry", trapped, ts)
 
     correlations: list[types.CorrelationStamped] = []
 
     @Action.action
-    def turn_to(self, heading: float, kv: float = 0.2, tolerance: float = 1.0):
+    def turn_to(self, heading: float, kv: float = 0.4, tolerance: float = 5.0):
         """Turn to a specific heading, stops when angular error is within tolerance"""
+        ramp = self.rmp[2]
+        prev_ramp_rate = ramp.rate
+        ramp.rate = 10.0
+        heading = ang_diff(0.0, heading)
+        t0: float = None
         while True:
             ts, (rx, ry, rz) = self.attitude
             dr = ang_diff(rz, heading)
             if abs(dr) < tolerance:
-                yield self.motion((0.0, 0.0, 0.0), f"Turn to {heading:.2f} deg [DONE]")
-                break
+                if t0 is None:
+                    t0 = ts
+                elif ts - t0 > 0.5:
+                    break  # Stabilized for 0.5 second
             else:
-                vr = vr_clamp(sign(dr) * sqrt(abs(dr / 30.0))) * kv
-                if abs(vr) < 0.2:
-                    vr = sign(vr) * 0.2
-                yield self.motion(
-                    (0.0, 0.0, vr), f"Turning from {rz:.2f} deg to {heading:.2f} deg"
-                )
+                t0 = None
+            # kp-only "PID" controller
+            vr = sign(dr) * max(0.2, abs(dr / 90.0) * kv)
+            vr = vr_clamp(vr)
+            yield self.motion(
+                (0.0, 0.0, vr), f"Turning from {rz:.2f} deg to {heading:.2f} deg"
+            )
 
-        node.declare_trapped("odometry", False)
-        node.accumulator.reset()
+        yield self.motion((0.0, 0.0, 0.0), f"Turn to {heading:.2f} deg [DONE]")
+
+        self.declare_trapped("odometry", False)
+        self.accumulator.reset()
+        ramp.rate = prev_ramp_rate
+
+    look_around_id: int = 0
+    last_look_around_location: Point2f = Point2f(0.0, 0.0)
+    # heading, confidence
+    last_look_around_candidates: list[tuple[float, float]] = []
 
     @Action.action
-    def look_around(self, direction: float):
+    def look_around(self, direction: float, initial: bool = False, sigma: float = 0.2):
         """Perform a 360 degree turn around, find best heading to go next"""
+        # Check if look around has been done in the same location
+        if len(self.last_look_around_candidates) > 0:
+            travel = self.location - self.last_look_around_location
+            if travel.norm() < self.trap_distance:
+                heading = self.last_look_around_candidates.pop(0)[0]
+                self.get_logger().info(f"Look around reusing previous result: {heading}")
+                return self.turn_to(heading)
+        self.last_look_around_candidates.clear()
+        self.last_look_around_location = self.location
+        # Initiate new look around procedure
+        id = self.look_around_id
+        self.look_around_id += 1
         # (timestamp, heading)
         trj: list[tuple[float, float]] = []
-        _, (_, _, prev_rz) = self.attitude
+        _, (_, _, initial_rz) = self.attitude
+        prev_rz = initial_rz
         accumulated_angle: float = 0.0
         # Clear existing correlation database
         self.correlations.clear()
@@ -145,49 +178,97 @@ class Navigation(TrapDetector, Action.Hub, Node):
                 p = abs(accumulated_angle) / 360.0
                 progress = "{:.1f}".format(100.0 * p)
                 s = progress.rjust(5, "0") + "%"
-            return f"Looking around - {s}"
+            return f"Looking around {id} - {s}"
 
         direction = vr_clamp(direction)
         while abs(accumulated_angle) < 360.0 or len(trj) < 10:
             # Continue turning around
             yield self.motion((0.0, 0.0, direction), info())
             ts, (_, _, rz) = self.attitude
-            trj.append((ts, rz))
             dr = ang_diff(prev_rz, rz)
             accumulated_angle += dr
             prev_rz = rz
+            trj.append((ts, accumulated_angle))
         yield self.motion((0.0, 0.0, 0.0), info("[DONE]"))
+        self.get_logger().info(f"Look around {id} captured {len(self.correlations)} data points")
+        total_correlations = len(self.correlations)
         # Create a mapping between timestamp and heading
         t2r = interpolate(*trj)
-        database = list[tuple[float, float]]()
+        #  hdg   |   nav   |   fam   |   raw   |   cnf   |   gau   |
+        database = list[tuple[float, float, float, float, float, float]]()
         for t, c in self.correlations:
-            heading = t2r(t)
-            pred = self.mixer.to_numpy(c).reshape(-1, 2)
-            n, f = pred.mean(axis=0, keepdims=False)
+            heading = ang_diff(0.0, t2r(t) + initial_rz)
+            pred = self.mixer.to_numpy(c).reshape(2, -1, 3)
+            nav, fam, std = pred[:, :, 0], pred[:, :, 1], pred[:, :, 2]
+            nav[std < 0.1] = 0.0
+            FAR, NEAR = 0, 1
+            nav = nav[FAR] * 0.2 + nav[NEAR] * 0.8
+            fam = fam[FAR] * 0.8 + fam[NEAR] * 0.2
+            nav: np.ndarray = pred[:, :, 0]
+            fam: np.ndarray = pred[:, :, 1]
+            nav[np.logical_and(nav > 0, std < 0.1)] = 0.0
             # Calculate confidence from navigability and familiarity
-            confidence = n * sqrt(abs(1.0 - f))
-            database.append((heading, confidence))
+            if initial:
+                # Disregard familiarity
+                comb = nav
+                # All directions are equally plausible
+                k = 1.0
+            else:
+                # Blend navigability and familiarity
+                comb: np.ndarray = nav * np.sqrt(1.0 - fam)
+                # Prefer directions that are different from where it was stuck at
+                k = min(1.0, abs(ang_diff(0, heading)) / 45.0)
+            raw = float(comb.mean())
+            score = k * raw
+            record = [heading, nav.mean(), fam.mean(), raw, score, 0.0]
+            database.append(record)
         self.correlations.clear()
-        # Find the best heading to go next
-        best_heading, best_confidence = None, 0.0
-        for heading, confidence in database:
-            if confidence > best_confidence:
-                best_heading, best_confidence = heading, confidence
-        self.trapped_since = None
-        if best_heading is not None:
-            self.turn_to(best_heading)
+        cube = np.array(database, dtype=np.float32)
+
+        # Gaussian smoothing on confidence score, filters out false positives
+        def gaussian(x, sigma):
+            y = np.exp(-((x / sigma) ** 2) / 2)
+            return y / np.sum(y)
+
+        X = np.abs(cube[:, 0] / 180.0)
+        while True:
+            for i, x in enumerate(X):
+                # Gaussian smoothing on confidence score
+                cube[i, 5] = np.dot(gaussian((X - x) % 1.0, sigma), cube[:, 4])
+            if cube[:, 5].max() > 0.0 or X.max() <= 0.0:
+                break
+            sigma /= 2.0 # decrease spread
+        
+
+        with open(CWD / "look_around.list", "at") as lst:
+            t_head = "#  hdg   |   nav   |   fam   |   raw   |   cnf   |   gau   |"
+            banner = center(f" Look Around {id} ", len(t_head), "=")
+            lst.write(banner + "\n")
+            lst.write(t_head + "\n")
+            fmt = lambda x: f"{float(x):.3f} ".rjust(9)
+            for record in cube:
+                lst.write(",".join(fmt(x) for x in record) + "\n")
+        # Find peaks in smoothed confidence score
+        fx: np.ndarray = cube[:, 5].copy()
+        diff = np.diff(fx, prepend=fx[-1], append=fx[0])
+        is_peak = (diff[:-1] > 0.0) & (diff[1:] < 0.0) & (cube[:, 5] > 0.0)
+        peaks = list(map(tuple, cube[:, (0, 5)][is_peak]))
+        self.get_logger().info(f"Look around {id} identified {len(peaks)} candidates")
+        # Find the best heading to go next, if any
+        peaks.sort(key=lambda x: x[1], reverse=True)
+        self.last_look_around_candidates = peaks
+        if len(self.last_look_around_candidates) > 0:
+            self.turn_to(self.last_look_around_candidates.pop(0)[0])
         else:
-            self.get_logger().warn("No plausible way found in look around database")
-            # Try again
-            self.look_around(direction)
+            self.get_logger().warn("Look around failed, retrying ...")
+            self.look_around(direction, initial=True)
 
 
 @ros_entry
 def main():
-    global node
-    node = Navigation()
-    input = node.input()
-    logger = protocol.logger = node.get_logger()
+    robot = Navigation()
+    input = robot.input()
+    logger = protocol.logger = robot.get_logger()
     # Control Rate Throttling
     interval: float = 1.0 / 25.0
     next_loop: float = now() + interval
@@ -196,43 +277,45 @@ def main():
     # Wait for input to be ready
     logger.info(f"Waiting for upstream ...")
     while not len(input):
-        spin_once(node, timeout_sec=1e-3)
+        spin_once(robot, timeout_sec=1e-3)
     logger.info(f"Starting initial look around")
-    node.look_around(0.2)
+    robot.look_around(0.2, initial=True)
     while ok():
         while now() < next_loop:
-            spin_once(node, timeout_sec=next_loop - now())
+            spin_once(robot, timeout_sec=next_loop - now())
         next_loop += interval
         for ts, correlation in input.dump():
+            robot.decision_delay = now() - ts
             with Timer(*count("Decision".ljust(10)), print=logger.debug, origin=ts):
-                node.correlations.append((ts, correlation))
-            if node.msg is not None:
-                logger.info(node.msg)
-                node.msg = None
-        if node.wait_action():
+                robot.correlations.append((ts, correlation))
+            if robot.msg is not None:
+                logger.info(robot.msg)
+                robot.msg = None
+        if robot.wait_action():
             pass
-        elif node.trapped_for() > node.trap_duration and not first_correlation:
-            duration = node.trapped_for()
-            reason = ", ".join(node.trapped_reason())
-            logger.info(str(node.trapped_by))
+        elif robot.trapped_for() > robot.trap_duration and not first_correlation:
+            duration = robot.trapped_for()
+            reason = ", ".join(robot.trapped_reason())
+            logger.info(str(robot.trapped_by))
             logger.info(f"Trapped for {duration:.2f}s ({reason})")
-            node.look_around(0.2 if node.vel[2] >= 0.0 else -0.2)
-        elif len(node.correlations):
+            robot.look_around(0.2 if robot.vel[2] >= 0.0 else -0.2)
+            robot.mixer.reset()
+        elif len(robot.correlations):
             if first_correlation:
-                node.declare_trapped("odometry", False)
-                node.accumulator.reset()
+                robot.declare_trapped("odometry", False)
+                robot.accumulator.reset()
                 first_correlation = False
             msg = None
-            if node.is_trapped():
-                duration = node.trapped_for()
-                reason = ", ".join(node.trapped_reason())
-                msg = f"Trapped for {node.trapped_for():.2f}s ({reason})"
+            if robot.is_trapped():
+                duration = robot.trapped_for()
+                reason = ", ".join(robot.trapped_reason())
+                msg = f"Trapped for {robot.trapped_for():.2f}s ({reason})"
             # Normal operation
-            *_, (ts, correlation) = node.correlations
-            node.correlations.clear()
-            node.decision_delay = now() - ts
-            node.motion(node.mixer(correlation), msg=msg)
+            *_, (ts, correlation) = robot.correlations
+            robot.correlations.clear()
+            robot.last_msg = None
+            robot.motion(robot.mixer(correlation), msg=msg)
         else:
             # Keep ramping previous demanded velocities
-            node.motion(None)
-    return node
+            robot.motion(None, msg=None)
+    return robot

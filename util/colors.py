@@ -17,4 +17,4 @@ def u8(c: np.ndarray) -> list:
     return np.rint(c * 255).astype(np.uint8).tolist()
 
 def mix(*colors: np.ndarray, weights=None) -> list:
-    return u8(np.average(colors, weights=weights, axis=0))
+    return np.average(colors, weights=weights, axis=0)

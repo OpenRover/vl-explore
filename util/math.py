@@ -79,3 +79,20 @@ def interpolate(*pt: tuple[float, float]):
 
 def near_zero(value: float, EPS=1e-2):
     return abs(value) < EPS
+
+def project(src: tuple[float, float], dst: tuple[float, float], clamp: bool = False):
+    x1, x2 = src
+    y1, y2 = dst
+
+    assert x1 != x2, f"Invalid projection source range ({x1}, {x2})"
+    scale = (y2 - y1) / (x2 - x1)    
+
+    def projection(value: float) -> float:
+        return y1 + (value - x1) * scale
+    
+    if clamp:
+        def clamp_projection(value: float) -> float:
+            return y1 if value < x1 else y2 if value > x2 else projection(value)
+        return clamp_projection
+    else:
+        return projection

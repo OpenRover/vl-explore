@@ -24,34 +24,29 @@ templates:
     - an empty photo
     - a photo with nothing in it
     - a meaningless photo
+    - a photo with no (context|texture|information) @ 1.1
 
 states:
   positive:
     - (flat|open|wide|clear|clean|smooth) {}
     - (empty|spacious|navigable) {}
-    - (flat|open|clear) (gateway|doorway|entrance)
+    - open (gateway|doorway|entrance)
   negative:
-    - (blocked|cluttered|messy|crowded) (space|scene)
-    - (closed|blocked) (gateway|doorway|entrance)
     - large {}
     - way blocking {}
-    - "{} behind a clear glass"
+    - (blocked|cluttered|messy|crowded) (space|scene)
+    - (closed|blocked) (gateway|doorway|entrance)
+    - (item|object) behind a clear glass
     - (transparent|clear|reflective) glass
+    - (white|brick|concrete) (wall|panel)
 
 objects:
   positive:
     - (way|path|road)
     - (aisle|hallway|walkway|corridor)
-    - (floor|ground)
+    - (floor|ground|carpet|pavement) @1.05
   negative:
-    - wall
-    - item
-    - barrier
-    - obstacle
-    - blockage
-    - blockade
-    - barricade
+    - (furniture|desk|chair|table|cabinet|shelf)
+    - (barrier|obstacle|blockage|barricade) @0.98
     - staircase
-    - object
     - structure
-    - (box|paper box|cardboard)

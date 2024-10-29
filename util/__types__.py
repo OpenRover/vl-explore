@@ -1,10 +1,11 @@
 from torch import Tensor
 from numpy import ndarray
 
-PerceptionStamped = tuple[float, Tensor | ndarray]
+# (timestamp: float, perception: N x 512 Tensor | ndarray)
+PerceptionStamped = tuple[float, list[float], Tensor | ndarray | None]
 
-# (label: str, navigability: float, familiarity: float)
-Correlation = list[list[tuple[str, float, float]]]
+# (label: str, navigability: float, familiarity: float, stddev: float)
+Correlation = list[list[tuple[str, float, float, float]]]
 CorrelationStamped = tuple[float, Correlation]
 
 # (vx: float, vy: float, rz: float)

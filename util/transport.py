@@ -100,9 +100,7 @@ class Transport(EndPoint["Transport[I, O]", I], Generic[I, O]):
         @Queue.Loop()
         @member_of(SELF)
         def loop(send: callable) -> Generator[None, I | type[Nothing], None]:
-            log.debug(f"{SELF} initializing")
             self.init()
-            log.debug(f"{SELF} started")
             while True:
                 item = yield
                 try:

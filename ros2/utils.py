@@ -177,7 +177,6 @@ class TravelAccumulator:
         self.duration = duration_seconds
         self.queue: deque[tuple[float, Point]] = deque()
 
-    prev_ts: float | None = None
     prev_loc: Point | None = None
 
     def shift(self, deadline: float):
@@ -205,7 +204,6 @@ class TravelAccumulator:
 
     def reset(self):
         self.queue.clear()
-        self.prev_ts = None
         self.prev_loc = None
 
 
@@ -272,14 +270,13 @@ class Count:
 class Ramp:
     src: float = 0.0
     dst: float = 0.0  # Target velocity
-    rate: float = 0.0  # Acceleration limitation
-    ts: float = 0.0  # Last update timestamp
 
-    def __init__(self, rate: float = 0.5):
+    def __init__(self, rate: float = 0.1):
         self.rate = abs(rate)
-        self.ts = now()
         if self.rate <= 0:
             raise ValueError(f"Bad rate: {rate}")
+        self.set(0.0)
+        self.t0 = now()
 
     def set(self, dst: float) -> "Ramp":
         self.dst = float(dst)
@@ -287,8 +284,8 @@ class Ramp:
 
     def get(self) -> float:
         t1 = now()
-        dt = t1 - self.ts
-        self.ts = t1
+        dt = t1 - self.t0
+        self.t0 = t1
         limit = self.rate * dt
         # Update and return src value
         delta = min(abs(self.dst - self.src), limit)
@@ -303,3 +300,18 @@ class Ramp:
 
     def __call__(self, value: float) -> float:
         return float(self.set(value))
+
+def center(content: str, width: int, fill: str = " "):
+    if len(content) >= width:
+        return content
+    s = width - len(content)
+    l = s // 2
+    r = s - l
+    return fill * l + content + fill * r
+
+
+def log_to(arr: list[str]):
+    def f(s: str):
+        arr.append(s)
+
+    return f

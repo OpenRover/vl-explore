@@ -35,7 +35,7 @@ def embeddings(prompts: list[tuple[str, float]], dir: Path):
     else:
         log.info(f"Loading prompts from disk (hash={hash})")
         embeddings = torch.load(path, weights_only=True)
-    weights = torch.tensor(weights, dtype=embeddings.dtype)
+    weights = torch.tensor(weights, dtype=embeddings.dtype, device=embeddings.device)
     return prompts, weights, embeddings
 
 

@@ -19,20 +19,28 @@ def print(msg: str, end="\n", **kwargs):
 
 
 def create_logger(
-    ID: str,
-    level: str,
+    ID: str | None,
+    level: str | None,
     level_color: str | None = None,
     msg_color: str | None = None,
     **kwargs,
 ):
-    level = f"[{level.upper().center(6)}]"
-    if level_color is not None:
-        level = colored(level, level_color)
+    if level is None:
+        level = ""
+    else:
+        level = f"[{level.upper().center(6)}]"
+        if level_color is not None:
+            level = colored(level, level_color)
+    
+    if ID is None:
+        ID = ""
+    else:
+        ID = colored(f" {ID}:", "light_grey")
 
     def log(*msgs: str, print: Callable[[str], Any] = print, sep=" ", **_kwargs):
         if msg_color is not None:
             msgs = [colored(msg, msg_color) for msg in msgs]
-        msg = format(f"{level} {ID}:", *msgs, sep=sep)
+        msg = format(level + ID, *msgs, sep=sep)
         print(msg, **kwargs, **_kwargs)
 
     return log
@@ -51,7 +59,7 @@ class Logger:
             ID = src
         self.debug = create_logger(ID, "DEBUG", "blue", "cyan", **kwargs)
         self.verbose = create_logger(ID, "VERBO", "light_grey", "light_grey", **kwargs)
-        self.info = create_logger(ID, "INFO", "green", "light_grey", **kwargs)
+        self.info = create_logger(ID, "INFO", "green", "white", **kwargs)
         self.warn = create_logger(ID, "WARN", "yellow", "light_yellow", **kwargs)
         self.error = create_logger(ID, "ERROR", "red", "light_red", **kwargs)
 

@@ -5,7 +5,6 @@
 import warnings, torch, open_clip, numpy as np, gc
 from multiprocessing.pool import ThreadPool as Pool
 
-from torch.nn import Module
 import torch.nn.functional as F
 
 from open_clip.model import CLIP
@@ -128,20 +127,24 @@ def _prepare(slicer: Slicer, frame: np.ndarray, threads: int = None) -> torch.Te
 
 @torch.no_grad()
 def prepare(
-    slicer: Slicer, frame: np.ndarray, threads: int = None, check: bool = False
+    slicer: Slicer, frame: np.ndarray | torch.Tensor, threads: int = None, check: bool = False
 ) -> torch.Tensor:
     # Torch tensor approach
     assert preprocess is not None, "Visual model not initialized."
-    t = to_device(torch.from_numpy(frame)) / 255.0
+    if isinstance(frame, np.ndarray):
+        t: torch.Tensor = to_device(torch.from_numpy(frame)) / 255.0
+    else:
+        t = to_device(frame)
 
     def pp(region: Region) -> torch.Tensor:
         return region(t).permute(2, 0, 1)
 
-    if threads is None:
+    if threads is None or threads <= 1:
         data = list(map(pp, slicer.regions))
     else:
         with Pool(threads) as pool:
             data = pool.map(pp, slicer.regions)
+
     t = preprocess(torch.stack(data))
     if not check:
         return t
