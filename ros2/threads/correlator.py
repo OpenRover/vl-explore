@@ -11,7 +11,7 @@ from torch import from_numpy
 from time import time as now
 
 from . import protocol
-from ..utils import Node, ros_entry, Count, log_to
+from ..utils.ros import Node, ros_entry, Count, log_to
 
 import models.clip as clip
 

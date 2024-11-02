@@ -10,7 +10,7 @@ from util.transport import Transport
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 
-from .utils import TimeStamp
+from .ros import TimeStamp
 
 log = Logger(__name__)
 
@@ -32,7 +32,7 @@ class ImageTP(Transport[Image, ImageMsg]):
 
 
 from nav_msgs.msg import Odometry
-from .utils import TimeStamp, attitude_from_quaternion
+from .ros import TimeStamp, attitude_from_quaternion
 from util.geometry import Point2f
 
 # (tx, ty)
@@ -90,7 +90,7 @@ class PerceptionTP(Transport[ImageMsg, PerceptionMsg]):
         yield ts, log, pred
 
 
-from .threads.correlator import DataBase
+from ..threads.correlator import DataBase
 
 # (label, navigability, familiarity)
 Correlation = tuple[str, float, float]

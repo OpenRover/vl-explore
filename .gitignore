@@ -14,6 +14,11 @@
 *.pt
 *.txt
 
+# Intermediate results
+*.pdf
+*.png
+*.jpg
+
 # Python runtime cache
 __pycache__
 

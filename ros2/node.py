@@ -11,9 +11,9 @@ from time import time as now
 from math import sqrt
 from rclpy import init, ok, spin_once
 
-from . import transports as TP
-from .utils import Subscriber, TravelAccumulator, TrapDetector
-from .mux import mux
+from .utils.ros import transports as TP
+from .utils.ros import Subscriber, TravelAccumulator, TrapDetector
+from .utils.mux import mux
 
 import models.clip as clip
 

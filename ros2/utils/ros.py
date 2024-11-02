@@ -301,14 +301,6 @@ class Ramp:
     def __call__(self, value: float) -> float:
         return float(self.set(value))
 
-def center(content: str, width: int, fill: str = " "):
-    if len(content) >= width:
-        return content
-    s = width - len(content)
-    l = s // 2
-    r = s - l
-    return fill * l + content + fill * r
-
 
 def log_to(arr: list[str]):
     def f(s: str):

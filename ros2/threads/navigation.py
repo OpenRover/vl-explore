@@ -9,7 +9,8 @@ from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 
 from . import protocol
-from ..utils import (
+from ..utils.look_around import LookAroundDatabase
+from ..utils.ros import (
     ok,
     spin_once,
     ros_entry,
@@ -20,7 +21,6 @@ from ..utils import (
     TimeStamp,
     Count,
     Ramp,
-    center,
 )
 
 from util import types
@@ -111,6 +111,11 @@ class Navigation(TrapDetector, Action.Hub, Node):
             # Odometry not initialized, assume free to move
             trapped = False
         self.declare_trapped("odometry", trapped, ts)
+        with open(CWD / "odometry.list", "at") as lst:
+            tx, ty = self.location
+            _, _, rz = att
+            for line in protocol.Odometry.encode([ts, tx, ty, rz]):
+                lst.write(line + "\n")
 
     correlations: list[types.CorrelationStamped] = []
 
@@ -148,26 +153,32 @@ class Navigation(TrapDetector, Action.Hub, Node):
     look_around_id: int = 0
     last_look_around_location: Point2f = Point2f(0.0, 0.0)
     # heading, confidence
-    last_look_around_candidates: list[tuple[float, float]] = []
+    last_look_around: LookAroundDatabase = None
 
     @Action.action
-    def look_around(self, direction: float, initial: bool = False, sigma: float = 0.2):
+    def look_around(self, direction: float, initial: bool = False, neg_window: float = 90.0):
         """Perform a 360 degree turn around, find best heading to go next"""
+        _, (_, _, initial_rz) = self.attitude
         # Check if look around has been done in the same location
-        if len(self.last_look_around_candidates) > 0:
+        if self.last_look_around is not None and self.last_look_around.has_candidates():
             travel = self.location - self.last_look_around_location
             if travel.norm() < self.trap_distance:
-                heading = self.last_look_around_candidates.pop(0)[0]
+                # Reuse previous look around result
+                heading, _ = self.last_look_around.next_candidate()
                 self.get_logger().info(f"Look around reusing previous result: {heading}")
                 return self.turn_to(heading)
-        self.last_look_around_candidates.clear()
-        self.last_look_around_location = self.location
         # Initiate new look around procedure
+        time_start = now()
         id = self.look_around_id
+        self.last_look_around = db = LookAroundDatabase(f"Look Around {id}")
+        self.last_look_around_location = self.location
         self.look_around_id += 1
+        db.add({"direction": 'L' if direction > 0 else 'R'})
+        db.add({"initial_rz": initial_rz})
+        if not initial:
+            db.add({"neg_window": neg_window})
         # (timestamp, heading)
         trj: list[tuple[float, float]] = []
-        _, (_, _, initial_rz) = self.attitude
         prev_rz = initial_rz
         accumulated_angle: float = 0.0
         # Clear existing correlation database
@@ -190,12 +201,10 @@ class Navigation(TrapDetector, Action.Hub, Node):
             prev_rz = rz
             trj.append((ts, accumulated_angle))
         yield self.motion((0.0, 0.0, 0.0), info("[DONE]"))
+        db.add({"time", [time_start, now()]})
         self.get_logger().info(f"Look around {id} captured {len(self.correlations)} data points")
-        total_correlations = len(self.correlations)
         # Create a mapping between timestamp and heading
         t2r = interpolate(*trj)
-        #  hdg   |   nav   |   fam   |   raw   |   cnf   |   gau   |
-        database = list[tuple[float, float, float, float, float, float]]()
         for t, c in self.correlations:
             heading = ang_diff(0.0, t2r(t) + initial_rz)
             pred = self.mixer.to_numpy(c).reshape(2, -1, 3)
@@ -207,58 +216,18 @@ class Navigation(TrapDetector, Action.Hub, Node):
             nav: np.ndarray = pred[:, :, 0]
             fam: np.ndarray = pred[:, :, 1]
             nav[np.logical_and(nav > 0, std < 0.1)] = 0.0
-            # Calculate confidence from navigability and familiarity
-            if initial:
-                # Disregard familiarity
-                comb = nav
-                # All directions are equally plausible
-                k = 1.0
-            else:
-                # Blend navigability and familiarity
-                comb: np.ndarray = nav * np.sqrt(1.0 - fam)
-                # Prefer directions that are different from where it was stuck at
-                k = min(1.0, abs(ang_diff(0, heading)) / 45.0)
-            raw = float(comb.mean())
-            score = k * raw
-            record = [heading, nav.mean(), fam.mean(), raw, score, 0.0]
-            database.append(record)
+            # Blend navigability and familiarity only when not initial
+            comb: np.ndarray = nav if initial else nav * np.sqrt(1.0 - fam) 
+            score = float(comb.mean())
+            # 4th col reserved for instruction compliance score
+            db.add([heading, nav.mean(), fam.mean(), 0.0, score])
         self.correlations.clear()
-        cube = np.array(database, dtype=np.float32)
-
-        # Gaussian smoothing on confidence score, filters out false positives
-        def gaussian(x, sigma):
-            y = np.exp(-((x / sigma) ** 2) / 2)
-            return y / np.sum(y)
-
-        X = np.abs(cube[:, 0] / 180.0)
-        while True:
-            for i, x in enumerate(X):
-                # Gaussian smoothing on confidence score
-                cube[i, 5] = np.dot(gaussian((X - x) % 1.0, sigma), cube[:, 4])
-            if cube[:, 5].max() > 0.0 or X.max() <= 0.0:
-                break
-            sigma /= 2.0 # decrease spread
-        
-
+        db.process()
         with open(CWD / "look_around.list", "at") as lst:
-            t_head = "#  hdg   |   nav   |   fam   |   raw   |   cnf   |   gau   |"
-            banner = center(f" Look Around {id} ", len(t_head), "=")
-            lst.write(banner + "\n")
-            lst.write(t_head + "\n")
-            fmt = lambda x: f"{float(x):.3f} ".rjust(9)
-            for record in cube:
-                lst.write(",".join(fmt(x) for x in record) + "\n")
-        # Find peaks in smoothed confidence score
-        fx: np.ndarray = cube[:, 5].copy()
-        diff = np.diff(fx, prepend=fx[-1], append=fx[0])
-        is_peak = (diff[:-1] > 0.0) & (diff[1:] < 0.0) & (cube[:, 5] > 0.0)
-        peaks = list(map(tuple, cube[:, (0, 5)][is_peak]))
-        self.get_logger().info(f"Look around {id} identified {len(peaks)} candidates")
-        # Find the best heading to go next, if any
-        peaks.sort(key=lambda x: x[1], reverse=True)
-        self.last_look_around_candidates = peaks
-        if len(self.last_look_around_candidates) > 0:
-            self.turn_to(self.last_look_around_candidates.pop(0)[0])
+            lst.writelines(db)
+        if db.has_candidates():
+            heading, _ = db.next_candidate()
+            self.turn_to(heading)
         else:
             self.get_logger().warn("Look around failed, retrying ...")
             self.look_around(direction, initial=True)

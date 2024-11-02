@@ -17,7 +17,7 @@ from util.sockets import SocketTransport, Server, Client
 from util.timer import Timer, now
 
 from . import protocol
-from ..utils import ros_entry, Count, ImageSubscriber, ok, center, log_to
+from ..utils.ros import ros_entry, Count, ImageSubscriber, ok, center, log_to
 
 from util.env import CWD
 

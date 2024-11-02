@@ -101,3 +101,15 @@ class Motion(JsonProtocol[types.MotionStamped]):
                 raise TypeError(f"Invalid motion frame: {items}")
         assert len(items) == 4, items
         yield items
+
+
+class Odometry(JsonProtocol[types.OdometryStamped]):
+    @classmethod
+    def to_items(cls, item):
+        yield from item
+
+    @classmethod
+    def from_items(cls, items):
+        if len(items) != 4:
+            raise TypeError(f"Invalid odometry frame: {items}")
+        yield items

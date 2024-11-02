@@ -32,7 +32,7 @@ class Renderer:
     def __init__(self, slicer: Slicer):
         self.slicer = slicer
         w, h = slicer.size()
-        h1 = int(round(h / 15))
+        h1 = int(round(h / 16))
         self.banner_region = Region(0, h - h1, w, h1)
         self.banner_t_box = TextBox(
             self.banner_region,

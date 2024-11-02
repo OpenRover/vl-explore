@@ -16,7 +16,7 @@ from util.transport import Transport, Pool, Queue
 import util.JSON as JSON
 
 from . import protocol
-from ..utils import ros_entry, Node, TimeStamp
+from ..utils.ros import ros_entry, Node, TimeStamp
 
 
 class Recorder(Node):

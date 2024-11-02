@@ -12,3 +12,8 @@ CorrelationStamped = tuple[float, Correlation]
 Motion = tuple[float, float, float]
 # (t0, delay, motion, message)
 MotionStamped = tuple[float, float, Motion, str | None]
+
+# (tx: float, ty: float, rz: float)
+Odometry = Motion
+# (t0, odometry)
+OdometryStamped = tuple[float, Odometry]
