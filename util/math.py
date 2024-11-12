@@ -2,6 +2,9 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
+from sys import float_info
+EPS = float_info.epsilon
+
 def sign(value: float) -> int:
     """Return the sign of a value"""
     if value > 0:
@@ -78,8 +81,8 @@ def interpolate(*pt: tuple[float, float]):
     return fn
 
 
-def near_zero(value: float, EPS=1e-2):
-    return abs(value) < EPS
+def near_zero(value: int | float, EPS=EPS):
+    abs(value) <= EPS
 
 
 def project(src: tuple[float, float], dst: tuple[float, float], clamp: bool = False):

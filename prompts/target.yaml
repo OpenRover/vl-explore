@@ -1,0 +1,14 @@
+# This is the template boilerplate for target searching prompts
+# ==============================================================================
+# Each entry can have an accumulative weight that will be multiplied with other
+# hierarchies. The final weight will be the product of all the weights in the
+# hierarchy.
+# ==============================================================================
+# Author: Yuxuan Zhang (robotics@z-yx.cc)
+# License: MIT
+# ==============================================================================
+
+templates:
+    positive:
+        - a brown toy bear with orange clothes
+        - a brown teddy bear with orange clothes

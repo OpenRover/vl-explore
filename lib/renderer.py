@@ -36,17 +36,17 @@ class Renderer:
         self.banner_region = Region(0, h - h1, w, h1)
         self.banner_t_box = TextBox(
             self.banner_region,
-            align="center",
-            vertical_align="middle",
-            scale=self.font_scale(0.8),
+            ha="center",
+            va="middle",
+            size=self.font_scale(0.8),
             thickness=self.thickness(0.8),
         )
         self.stats_region = Region(0, 0, w, h1)
         self.stats_t_box = TextBox(
             self.stats_region,
-            align="center",
-            vertical_align="middle",
-            scale=self.font_scale(0.8),
+            ha="center",
+            va="middle",
+            size=self.font_scale(0.8),
             thickness=self.thickness(0.8),
         )
 
@@ -116,12 +116,12 @@ class Renderer:
                 t_box(
                     frame,
                     t,
-                    scale=self.font_scale(),
+                    size=self.font_scale(),
                     color=fg,
                     thickness=self.thickness(),
                     font=cv2.FONT_HERSHEY_DUPLEX,
-                    align="center",
-                    vertical_align=va,
+                    ha="center",
+                    va=va,
                     line_height=1.5,
                     dpi_scale=2.0,
                 )

@@ -27,7 +27,7 @@ from util import types
 from util.env import CWD
 from util.sockets import SocketTransport, Server, Client
 from util.action import Action
-from util.math import ang_diff, clamp, sign, interpolate
+from util.math import ang_diff, clamp, sign, interpolate, project
 from util.timer import Timer
 from util.geometry import Point2f
 
@@ -76,11 +76,10 @@ class Navigation(TrapDetector, Action.Hub, Node):
 
     def motion(self, vel: types.Motion = None, msg=None):
         if vel is not None:
-            self.vel = tuple(map(float, vel))  # Terminal speed demanded
-            vx, vy, vr = [r(v) for r, v in zip(self.rmp, vel)]
-        else:
-            vx, vy, vr = (r.get() for r in self.rmp)
+            # Velocity updated
+            self.vel = tuple(map(float, vel))
         # Apply ramping
+        vx, vy, vr = [r(v) for r, v in zip(self.rmp, self.vel)]
         motion = Twist()
         motion.linear.x = vx
         motion.linear.y = vy
@@ -156,7 +155,9 @@ class Navigation(TrapDetector, Action.Hub, Node):
     last_look_around: LookAroundDatabase = None
 
     @Action.action
-    def look_around(self, direction: float, initial: bool = False, neg_window: float = 90.0):
+    def look_around(
+        self, direction: float, initial: bool = False, neg_window: float = 90.0
+    ):
         """Perform a 360 degree turn around, find best heading to go next"""
         _, (_, _, initial_rz) = self.attitude
         # Check if look around has been done in the same location
@@ -165,7 +166,9 @@ class Navigation(TrapDetector, Action.Hub, Node):
             if travel.norm() < self.trap_distance:
                 # Reuse previous look around result
                 heading, _ = self.last_look_around.next_candidate()
-                self.get_logger().info(f"Look around reusing previous result: {heading}")
+                self.get_logger().info(
+                    f"Look around reusing previous result: {heading}"
+                )
                 return self.turn_to(heading)
         # Initiate new look around procedure
         time_start = now()
@@ -173,7 +176,7 @@ class Navigation(TrapDetector, Action.Hub, Node):
         self.last_look_around = db = LookAroundDatabase(f"Look Around {id}")
         self.last_look_around_location = self.location
         self.look_around_id += 1
-        db.add({"direction": 'L' if direction > 0 else 'R'})
+        db.add({"direction": "L" if direction > 0 else "R"})
         db.add({"initial_rz": initial_rz})
         if not initial:
             db.add({"neg_window": neg_window})
@@ -201,8 +204,10 @@ class Navigation(TrapDetector, Action.Hub, Node):
             prev_rz = rz
             trj.append((ts, accumulated_angle))
         yield self.motion((0.0, 0.0, 0.0), info("[DONE]"))
-        db.add({"time", [time_start, now()]})
-        self.get_logger().info(f"Look around {id} captured {len(self.correlations)} data points")
+        db.add({"time": [time_start, now()]})
+        self.get_logger().info(
+            f"Look around {id} captured {len(self.correlations)} data points"
+        )
         # Create a mapping between timestamp and heading
         t2r = interpolate(*trj)
         for t, c in self.correlations:
@@ -217,7 +222,16 @@ class Navigation(TrapDetector, Action.Hub, Node):
             fam: np.ndarray = pred[:, :, 1]
             nav[np.logical_and(nav > 0, std < 0.1)] = 0.0
             # Blend navigability and familiarity only when not initial
-            comb: np.ndarray = nav if initial else nav * np.sqrt(1.0 - fam) 
+            comb: np.ndarray # Range [-1, 1]
+            ns = nav.copy()
+            ns[ns < 0] /= -np.min(ns)
+            ns[ns > 0] /= np.max(ns)
+            if initial:
+                comb = ns
+            else:
+                KN = 0.6 # Weight of navigability score
+                fs = project((fam.max(), fam.min()), (-1.0, 1.0))(fam)
+                comb = ns * KN + fs * (1.0 - KN)
             score = float(comb.mean())
             # 4th col reserved for instruction compliance score
             db.add([heading, nav.mean(), fam.mean(), 0.0, score])

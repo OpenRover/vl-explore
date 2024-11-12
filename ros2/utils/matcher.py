@@ -45,7 +45,7 @@ class Matcher:
             self.forward()
         if ts < self.t0:
             raise self.Outdated()
-        return self.t0, self.d0
+        return self.t0, self.d0, self.d1
 
     def freq(self, N: int = 5):
         self.intervals = self.intervals[-N:]

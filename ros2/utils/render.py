@@ -30,6 +30,7 @@ parser.add_argument("cwd", type=str, help="Current Working Directory")
 parser.add_argument("--strategy", default="6T1P", help="Strategy to use")
 parser.add_argument("--src", help="Dir name of raw images", default="recording")
 parser.add_argument("--dst", help="Output Directory", default="rendering")
+parser.add_argument("--resize", help="Resize factor", default=1.0)
 
 args = parser.parse_args()
 CWD = Path(os.path.realpath(str(args.cwd)))
@@ -42,7 +43,7 @@ should_resize = size_factor != 1.0
 assert SRC.is_dir(), f"Invalid source directory: {SRC}"
 DST.mkdir(exist_ok=True, parents=True)
 
-FF_CONCAT = Path(f"{CWD}/render.list")
+FF_CONCAT = Path(f"{CWD}/rendering.ffconcat")
 VIDEO = Path(f"{CWD}.mp4")
 
 if VIDEO.is_dir():
@@ -50,10 +51,12 @@ if VIDEO.is_dir():
 
 
 if VIDEO.exists():
+    log.warn(f"Target output already exists: {VIDEO}")
     if confirm(f"Overwrite {VIDEO}?"):
         VIDEO.unlink()
     else:
-        raise FileExistsError(VIDEO)
+        log.error("Aborted")
+        sys.exit(1)
 
 
 def fmt_time(t: float):
@@ -155,8 +158,8 @@ def main():
                     prev_ts = ts
                 t1 = ts
                 try:
-                    t1, d1 = M1(ts)  # Correlation
-                    t2, d2 = M2(ts)  # Navigation
+                    t1, d1, _ = M1(ts)  # Correlation
+                    t2, d2, _ = M2(ts)  # Navigation
                 except Matcher.Outdated:
                     if first_skip is None:
                         first_skip = ts
@@ -241,6 +244,7 @@ if __name__ == "__main__":
             ):
                 path.unlink()
             DST.rmdir()
+            FF_CONCAT.unlink()
     else:
         log.warn("No video rendered")
         log.info("Command: " + " ".join(ffmpeg))
