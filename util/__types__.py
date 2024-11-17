@@ -5,6 +5,7 @@ from numpy import ndarray
 PerceptionStamped = tuple[float, list[float], Tensor | ndarray | None]
 
 # (label: str, navigability: float, familiarity: float, stddev: float)
+# Correlation[prompt_id][tile_id]
 Correlation = list[list[tuple[str, float, float, float]]]
 CorrelationStamped = tuple[float, Correlation]
 

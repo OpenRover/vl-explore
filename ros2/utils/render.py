@@ -111,6 +111,7 @@ def render_frame(arguments):
             renderer.banner(frame, banner, blurred=blurred)
         cv2.imwrite(dst, frame)
     except Exception as e:
+        raise e
         return e
 
 
@@ -136,7 +137,7 @@ def main():
     )
     progress.update(0)
     results, durations = list[tuple[str, bool]](), list[float]()
-    t0 = None
+    t0 = None # Timestamp of first valid (actually rendered) frame
     prev_ts = None
 
     def gen():
@@ -156,7 +157,6 @@ def main():
             for ts, filename in map(parse, img):
                 if prev_ts is None:  # First frame
                     prev_ts = ts
-                t1 = ts
                 try:
                     t1, d1, _ = M1(ts)  # Correlation
                     t2, d2, _ = M2(ts)  # Navigation
@@ -166,6 +166,7 @@ def main():
                     skipped += 1
                     results.append((filename, False))
                     durations.append(ts - prev_ts)
+                    prev_ts = ts
                     continue
                 if skipped > 0:
                     skip_duration = ts - first_skip

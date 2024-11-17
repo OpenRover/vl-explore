@@ -24,6 +24,8 @@ from util.queue import Queue
 from prompts import Prompt
 
 
+STDDEV_THRESHOLD = 0.15
+
 class DataBase:
     threshold: float = 0.9  # Threshold for merge operation
     decay: float = 0.8  # Decay factor for rolling average merge
@@ -63,7 +65,7 @@ class DataBase:
             # (N, L) index array
             indexes = corr.argsort(axis=1)
             for n, (i, c, v, d) in enumerate(zip(indexes, corr, x, stddev)):
-                if d <= 0.0:
+                if d <= STDDEV_THRESHOLD:
                     familiarity.append(0.0)
                     continue
                 # Find the maximum correlation
@@ -140,16 +142,20 @@ def correlate(
     Perform correlation between embeddings, text prompts and history db.
     """
     if embeddings is None:
-        return [[("Invalid", -1, 1, s)] * len(prompts) for s in stddev]
+        return [[("Invalid", -1.0, 1.0, s)] * len(prompts) for s in stddev]
     else:
         t = to_device(from_numpy(embeddings.copy()))
         scores = list(p(t) for p in prompts)
-        correlation: list[list[types.Correlation]] = [[] * len(scores)]
+        correlation: list[list[types.Correlation]] = [[] for _ in scores]
         for tile_id, familiarity in enumerate(database(embeddings, stddev)):
             for prompt_id, c in enumerate(correlation):
                 assert len(c) == tile_id
                 label, score = scores[prompt_id][tile_id]
                 std = stddev[tile_id]
+                # Apply standard deviation threshold
+                if std <= STDDEV_THRESHOLD:
+                    score = -abs(score)
+                    familiarity = 1.0
                 c.append([label, score, familiarity, std])
         return correlation
 
@@ -177,6 +183,7 @@ def main():
     logger = protocol.logger = node.get_logger()
 
     prompts = [p.to("cpu") for p in node.strategy.prompts()]
+    prompts.append(Prompt("target").to("cpu"))
     clip.deinit()
     select_device("cpu", reselect=True)
 
@@ -198,7 +205,7 @@ def main():
             ):
                 correlation = correlate(stddev, embeddings, prompts, database)
             node.output.send((timestamp, correlation))
-            
+
             with open(CWD / "perf.log", "at") as perf:
                 for l in log:
                     perf.write(l + "\n")

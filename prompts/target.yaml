@@ -10,5 +10,19 @@
 
 templates:
     positive:
-        - a brown toy bear with orange clothes
-        - a brown teddy bear with orange clothes
+        - a photo of {}
+        - a cropped photo of {} @ 0.99
+    negative:
+        - a photo of an unknown item
+        - a photo of an unknown scene
+        - a photo of an unknown object
+
+states:
+    positive:
+        - a (toy|teddy) bear @ 0.99
+        - a brown (toy|teddy) bear @ 0.99
+        - a brown (toy|teddy) bear in orange cloth @ 1.00
+        # - a toy rain deer @ 0.99
+        # - a (yellow|brown) toy rain deer @ 0.99
+        - a first aid (box|kit) @ 0.99
+        - a red first aid (box|kit) @ 1.00

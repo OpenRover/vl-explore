@@ -114,7 +114,15 @@ def window_scan(X: np.ndarray, Y: np.ndarray):
     y = np.array([Y[-1], *Y, Y[0]])
     edges_l = np.where((y[:-2] <= 0.0) & (y[1:-1] > 0.0))[0]
     edges_r = np.where((y[1:-1] > 0.0) & (y[2:] <= 0.0))[0]
-    if edges_r[0] < edges_l[0]:
+    assert len(edges_l) == len(edges_r), f"Bad edges: {edges_l}, {edges_r}"
+    if len(edges_l) == 0 or len(edges_r) == 0:
+        if np.all(y >= 0.0):
+            # Find the peak
+            pos = np.argmax(y)
+            hdg = circular(X[pos]) / DEG2RAD
+            candidates.append((hdg, y[pos]))
+        return candidates
+    elif edges_r[0] < edges_l[0]:
         # Shift around
         tmp = edges_r[0]
         edges_r[:-1] = edges_r[1:]
@@ -319,11 +327,11 @@ class LookAroundDatabase:
                     assert type(record) is str, f"Bad record type: {type(record)}"
                     line = record.strip()
                     if line.startswith("@"):
-                        key, value = line[1:].split(maxsplit=1)
+                        key, value, *_ = line[1:].split(maxsplit=1) + [None]
                         assert len(key) > 0, f"Bad key: {key}"
                         if key in self.attrs:
                             log.warn(f"Duplicate attribute: {key}, overwriting.")
-                        self.attrs[key] = loads(value)
+                        self.attrs[key] = value and loads(value) or None
                     else:
                         self.data.append(list(map(float, line.split(","))))
             except Exception as e:
@@ -340,8 +348,7 @@ class LookAroundDatabase:
         cube[:, 0] = cube[:, 0] % 360.0  # Normalize headings
         assert np.all(cube[:, 0] >= 0.0), f"Bad heading: {cube[:, 0]}"
         cube = cube[cube[:, 0].argsort(), :]
-        hdg, nav, fam, ins, raw = cube.T[:5]
-        ins = raw  # 4th col (`ins`) reserved for instruction compliance score
+        hdg, nav, fam, trg, raw = cube.T[:5]
         # X variants
         X = circular(hdg * DEG2RAD)
         dX = circular(np.diff(X, prepend=X[-1], append=X[0]))
@@ -350,15 +357,28 @@ class LookAroundDatabase:
         Xw = np.convolve(dX, [0.5, 0.5], "valid")  # window size of each sample
         Xc = X + np.diff(dX) / 4  # center of each sample in their range
         # Gaussian sample x coordinates - evenly spaced (per 1 degree)
-        gX, gY, kws = gaussian(Xc, raw, Xw, **self.attrs)
-        self.attrs.update(kws)
+        gX, gY, attrs = gaussian(Xc, raw, Xw, **self.attrs)
+        self.attrs.update(attrs)
+        attrs = self.attrs.copy()
+        attrs["sigma"] = attrs.get("sigma_trg", None)
+        _, gT, attrs = gaussian(Xc, trg, Xw, **attrs)
+        if "sigma" in attrs:
+            self.attrs["sigma_trg"] = attrs["sigma"]
+        if np.any(gT > 0):
+            gT[gT > 0] /= np.max(gT[gT > 0])
+        if np.any(gT < 0):
+            gT[gT < 0] /= -np.min(gT[gT < 0])
         # Selection of candidate headings
         if "candidates" not in self.attrs:
-            candidates = window_scan(gX, gY)
+            # Candidate headings according to navigability
+            nav_candidates = window_scan(gX, gY)
+            # Candidate headings according to target confidence
+            trg_candidates = window_scan(gX, gT)
             if "neg_window" in self.attrs:
                 # Reconsider candidates given initial_rz and neg_window
                 x0 = self.initial_rz * DEG2RAD
-                x, y = np.array(candidates).T
+                x1 = x0 + np.pi
+                x, yn = np.array(nav_candidates).T
                 x *= DEG2RAD
                 dx = self.attrs.get("neg_window", 90.0) / 2 * DEG2RAD
 
@@ -367,8 +387,17 @@ class LookAroundDatabase:
                     return 1.0 - np.exp(-np.abs(fx) / 2)
 
                 ky = k_factors(circular(x - x0), dx)
-                candidates = list(zip(x / DEG2RAD, y * ky))
-                if "debug_neg_window" in self.attrs:
+                # Apply 50% penalty to turn 180deg and go back the same way
+                ky = ky * (0.5 + k_factors(circular(x - x1), dx) / 2)
+                nav_candidates = list(zip(x / DEG2RAD, yn * ky))
+
+                if len(trg_candidates) > 0:
+                    _x, yt = np.array(trg_candidates).T
+                    _x *= DEG2RAD
+                    _ky = k_factors(circular(_x - x0), dx)
+                    trg_candidates = list(zip(x / DEG2RAD, yt * _ky))
+
+                if "debug" in self.attrs:
                     fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
 
                     for _x, _y in zip(gX, gY):
@@ -392,10 +421,12 @@ class LookAroundDatabase:
                         ax.vlines(_w, *ax.get_ylim(), "black", "dashed", linewidth=0.75)
                         ax.vlines(x0, *ax.get_ylim(), "black", "dotted", linewidth=0.5)
                     fig.savefig(self.name.replace(" ", "_") + "_debug.png", dpi=300)
-            candidates.sort(key=lambda x: x[1], reverse=True)
-            self.attrs["candidates"] = candidates
+            # Sort and combine candidates
+            nav_candidates.sort(key=lambda x: x[1], reverse=True)
+            trg_candidates.sort(key=lambda x: x[1], reverse=True)
+            self.attrs["candidates"] = trg_candidates + nav_candidates
         # Return intermediate results
-        return (X, Xw, Xc), (nav, fam, ins, raw), (gX, gY)
+        return (X, Xw, Xc), (nav, fam, trg, raw), (gX, gY, gT)
 
     def has_candidates(self):
         return "candidates" in self.attrs and len(self.attrs["candidates"]) > 0
@@ -409,7 +440,7 @@ class LookAroundDatabase:
         Produces a CSV-like output with header, data and attribute rows.
         Can be used with file.writelines() to save to a file.
         """
-        t_head = "#   hdg   |   nav   |   fam   |   raw   |   cnf   |"
+        t_head = "#   hdg   |   nav   |   fam   |   trg   |   raw   |"
         # Triple equals indicates the start of a new database
         banner = center(self.name, len(t_head), "=", " ")
         if not banner.startswith("=" * 3):
@@ -429,13 +460,13 @@ class LookAroundDatabase:
             return self._renderer(ctx)
         initial_rz = self.initial_rz * DEG2RAD
         # Well-known values, should not be modified or overridden
-        (X, Xw, Xc), (nav, fam, ins, raw), (gX, gY) = self.process()
+        (X, Xw, Xc), (nav, fam, ins, raw), (gX, gY, gT) = self.process()
         # Prepare X ranges for radar plot
         S = 1.0 * np.pi / 180.0
         outer_ring_widths = np.maximum(Xw - S / 2, Xw * 0.4)
         outer_ring_bottoms = np.arange(-0.2, 1.0, 0.3)
         outer_ring_colors = [
-            alpha(c[::-1]) for c in (GREEN * 0.8, BLUE, MAGENTA, ORANGE)
+            alpha(c[::-1]) for c in (GREEN * 0.8, MAGENTA, ORANGE, BLUE)
         ]
         outer_ring_vals = list[np.ndarray]()
         for arr in (nav, fam, ins, raw):
@@ -475,7 +506,7 @@ class LookAroundDatabase:
         gc = gY.copy()
         gc[gc > 0] /= gc[gc > 0].max()
         gc[gc < 0] /= -gc[gc < 0].min()
-        gaussian_curve_bars = list[float](zip(gX, gy, gc))
+        gaussian_curve_bars = list[float](zip(gX, gy, gc, gT))
         gaussian_curve_pts = list(gX) + [gX[0]], list(gy) + [gy[0]]
 
         def plot_core_gaussian(ctx: RenderContext):
@@ -487,11 +518,14 @@ class LookAroundDatabase:
             C1 = alpha(BLUE[::-1] * k + WHITE * (1 - k))
             C2 = alpha(RED[::-1] * k + WHITE * (1 - k))
             CM = alpha(ctx.bg, 0.0)
-            for x, y, c in gaussian_curve_bars:
+            for x, y, c, t in gaussian_curve_bars:
                 # Background - transparent black bar
                 bg_bar = ctx.ax.bar(x, R[1] - R[0], width, R[0], align="center")[0]
-                bg_bar.set_facecolor(ctx.fg)
-                bg_bar.set_alpha(0.1)
+                bg_bar.set_facecolor(ctx.fg if t < 0 else ORANGE[::-1])
+                if t > 0:
+                    bg_bar.set_alpha(min(max(0.2, float(t * 4)), 0.8))
+                else:
+                    bg_bar.set_alpha(0.1)
                 # Foreground - colorized bar
                 bottom = min(y, neutral)
                 height = abs(y - neutral)
@@ -836,7 +870,7 @@ if __name__ == "__main__":
         if not img_list.exists():
             log.warn(f"File not found: {img_list}")
 
-    log.info(f"Found {len(image_candidates)} frames actions to be rendered")
+    log.info(f"Found {len(image_candidates)} frames to be rendered")
 
     if not look_around_list.exists():
         log.error(f"File not found: {look_around_list}")
@@ -949,7 +983,7 @@ if __name__ == "__main__":
             flag_term = manager.Value(c_bool, False)
             mp_args = (counter, counter_lock, log_queue, flag_term)
             with tqdm(
-                total=sum(len(l) for n, d, t, l, *_ in actions) + len(actions),
+                total=len(lst) + 1,
                 desc=f"Rendering {name}",
                 unit="frames",
                 leave=False,
@@ -1018,7 +1052,7 @@ if __name__ == "__main__":
 
     # Generate video
     try:
-        ffmpeg = FFMPEG(FF_CONCAT, str(CWD) + "_look_around.mp4")
+        ffmpeg = FFMPEG(FF_CONCAT, str(CWD) + "_LA.mp4")
         ff_log = Logger.create(None, "FFMPEG", "cyan", "light_grey")
         ff_log("=" * 60)
         ff_log(" ".join(ffmpeg))

@@ -295,6 +295,11 @@ class Ramp:
             self.src -= delta
         return self.src
 
+    def reset(self, val: float = 0.0) -> "Ramp":
+        self.src = val
+        self.dst = val
+        return self
+
     def __call__(self, value: float) -> float:
         return self.set(value).get()
 
