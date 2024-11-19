@@ -31,8 +31,9 @@ parser.add_argument("--strategy", default="6T1P", help="Strategy to use")
 parser.add_argument("--src", help="Dir name of raw images", default="recording")
 parser.add_argument("--dst", help="Output Directory", default="rendering")
 parser.add_argument("--resize", help="Resize factor", default=1.0)
-
+parser.add_argument("-y", "--yes", help="Yes to all", action="store_true", default=False)
 args = parser.parse_args()
+YES = bool(args.yes)
 CWD = Path(os.path.realpath(str(args.cwd)))
 SRC = CWD / str(args.src)
 DST = CWD / str(args.dst)
@@ -235,7 +236,7 @@ if __name__ == "__main__":
         log.info(msg)
         print("=" * len(msg))
         print()
-        if confirm(f"Remove rendering folder {DST}?", auto_acc=True):
+        if YES or confirm(f"Remove rendering folder {DST}?", auto_acc=True):
             for path in tqdm(
                 list(DST.glob("*")),
                 desc="Removing",

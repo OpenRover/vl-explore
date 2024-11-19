@@ -801,6 +801,7 @@ if __name__ == "__main__":
     from argparse import ArgumentParser
     from tqdm import tqdm
     from ctypes import c_int, c_bool
+    from util.terminal import confirm
 
     matplotlib.use("Agg")
 
@@ -808,7 +809,9 @@ if __name__ == "__main__":
     parser.add_argument("cwd", type=str, help="Current working directory")
     parser.add_argument("--src", help="Dir name of raw images", default="recording")
     parser.add_argument("--dst", help="Output Directory", default="look_around")
+    parser.add_argument("-y", "--yes", help="Yes to all", action="store_true", default=False)
     args = parser.parse_args()
+    YES = bool(args.yes)
     CWD = Path(os.path.realpath(str(args.cwd)))
     SRC = CWD / str(args.src)
     DST = CWD / str(args.dst)
@@ -816,6 +819,17 @@ if __name__ == "__main__":
     img_list = CWD / "images.list"
     odm_list = CWD / "odometry.list"
     look_around_list = CWD / "look_around.list"
+
+    VIDEO_FILE = CWD.parent / (CWD.name + "_LA.mp4")
+
+    if VIDEO_FILE.exists():
+        assert VIDEO_FILE.is_file(), f"Bad destination: {VIDEO_FILE} is a directory"
+
+        if confirm("Overwrite existing video?", auto_rej=True):
+            VIDEO_FILE.unlink()
+        else:
+            log.warn("Look around rendering aborted by user")
+            sys.exit(0)
 
     all_images = list[tuple[float, str]]()  # (ts, filename)
     # image_candidates = set[tuple[float, float, str]]()  # (ts, heading, filename)
@@ -1052,7 +1066,7 @@ if __name__ == "__main__":
 
     # Generate video
     try:
-        ffmpeg = FFMPEG(FF_CONCAT, str(CWD) + "_LA.mp4")
+        ffmpeg = FFMPEG(FF_CONCAT, VIDEO_FILE)
         ff_log = Logger.create(None, "FFMPEG", "cyan", "light_grey")
         ff_log("=" * 60)
         ff_log(" ".join(ffmpeg))
@@ -1066,10 +1080,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         log.warn("User interrupted")
 
-    # Cleanup
-    from util.terminal import confirm
-
-    if confirm("Remove intermediate files?", auto_acc=True):
+    if YES or confirm("Remove intermediate files?", auto_acc=True):
         for path in tqdm(
             list(DST.glob("*")),
             desc="Removing",
