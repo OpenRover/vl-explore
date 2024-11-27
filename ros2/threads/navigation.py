@@ -300,7 +300,7 @@ def main():
             robot.trapped_for() > robot.trap_duration
             and not first_correlation
             # Uncomment this to stop in front of the first target
-            # and robot.mixer.state is None
+            and robot.mixer.state is None
         ):
             duration = robot.trapped_for()
             reason = ", ".join(robot.trapped_reason())

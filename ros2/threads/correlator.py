@@ -21,10 +21,8 @@ from util.sockets import SocketTransport, Server, Client
 from util.timer import Timer
 from util.exception import Expect
 from util.queue import Queue
+from util.params import STDDEV_THRESHOLD
 from prompts import Prompt
-
-
-STDDEV_THRESHOLD = 0.15
 
 class DataBase:
     threshold: float = 0.9  # Threshold for merge operation

@@ -392,10 +392,9 @@ class LookAroundDatabase:
                 nav_candidates = list(zip(x / DEG2RAD, yn * ky))
 
                 if len(trg_candidates) > 0:
-                    _x, yt = np.array(trg_candidates).T
-                    _x *= DEG2RAD
-                    _ky = k_factors(circular(_x - x0), dx)
-                    trg_candidates = list(zip(x / DEG2RAD, yt * _ky))
+                    _x0 = self.initial_rz
+                    _dx = self.attrs.get("neg_window", 90.0) / 6
+                    trg_candidates = [(x, y) for x, y in trg_candidates if abs(ang_diff(_x0, x)) > _dx]
 
                 if "debug" in self.attrs:
                     fig, (ax1, ax2, ax3) = plt.subplots(3, 1)

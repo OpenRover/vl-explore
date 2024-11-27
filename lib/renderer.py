@@ -3,6 +3,7 @@ from numpy import ndarray
 
 from .slicer import Slicer
 
+from util.params import STDDEV_THRESHOLD
 from util.iter import flatten
 from util.geometry import Region, Point2i as Point
 from util.graphics import TextBox, draw_corners
@@ -85,7 +86,7 @@ class Renderer:
         else:
             light = True
 
-        if abs(navigability) <= 1e-4 or stddev < 0.1:
+        if abs(navigability) <= 1e-4 or stddev <= STDDEV_THRESHOLD:
             # Region is invalid, render in grayscale
             bg, mg, fg = u8(colorize(0, GRAY, GRAY, light=light))
         elif target[1] > 0:
