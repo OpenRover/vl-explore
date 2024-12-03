@@ -31,6 +31,8 @@ def colorize(x: float, C1: np.ndarray, C2: np.ndarray, CM=WHITE[::-1], POWER=0.5
     x = abs(x) ** POWER
     return tuple(C * x + CM * (1.0 - x))
 
+def norm_color(color: Iterable[float]) -> tuple[float]:
+    return tuple(np.clip(color, 0.0, 1.0))
 
 def alpha(c: np.ndarray, a: float = 1.0):
     return np.append(c, a)
@@ -236,7 +238,7 @@ class RenderContext:
         ax.spines["polar"].set_visible(False)
         # ax.spines["polar"].set_alpha(0.5)
         # ax.spines["polar"].set_linewidth(0.8)
-        # ax.spines["polar"].set_color(self.fg)
+        # ax.spines["polar"].set_color(norm_color(self.fg))
         self.circle(
             1.0,
             self.fg,
@@ -490,7 +492,7 @@ class LookAroundDatabase:
                 ):
                     bar = ctx.ax.bar(x, 0.2, w, bottom, align="center")[0]
                     *c, a = colorize(y[i], c1, c2, cm)
-                    bar.set_facecolor(c)
+                    bar.set_facecolor(norm_color(c))
                     bar.set_alpha(a)
 
         # Final score (with Gaussian smoothing)
@@ -520,7 +522,7 @@ class LookAroundDatabase:
             for x, y, c, t in gaussian_curve_bars:
                 # Background - transparent black bar
                 bg_bar = ctx.ax.bar(x, R[1] - R[0], width, R[0], align="center")[0]
-                bg_bar.set_facecolor(ctx.fg if t < 0 else ORANGE[::-1])
+                bg_bar.set_facecolor(norm_color(ctx.fg if t < 0 else ORANGE[::-1]))
                 if t > 0:
                     bg_bar.set_alpha(min(max(0.2, float(t * 4)), 0.8))
                 else:
@@ -530,7 +532,7 @@ class LookAroundDatabase:
                 height = abs(y - neutral)
                 fb_bar = ctx.ax.bar(x, height, width, bottom, align="center")[0]
                 *_c, a = colorize(c, C1, C2, CM)
-                fb_bar.set_facecolor(_c)
+                fb_bar.set_facecolor(norm_color(_c))
             ctx.ax.plot(
                 *gaussian_curve_pts, color=ctx.fg, linestyle="solid", linewidth=0.25
             )
@@ -609,9 +611,9 @@ class LookAroundDatabase:
                 align="edge",
                 zorder=-100,
             )
-            bars[0].set_facecolor(GREEN[::-1])
+            bars[0].set_facecolor(norm_color(GREEN[::-1]))
             bars[0].set_alpha(0.5)
-            bars[1].set_facecolor(ctx.fg[::-1])
+            bars[1].set_facecolor(norm_color(ctx.fg[::-1]))
             bars[1].set_alpha(0.2)
             return bars
 
