@@ -53,7 +53,7 @@ if VIDEO.is_dir():
 
 if VIDEO.exists():
     log.warn(f"Target output already exists: {VIDEO}")
-    if confirm(f"Overwrite {VIDEO}?"):
+    if confirm(f"Overwrite existing video?", auto_rej=True):
         VIDEO.unlink()
     else:
         log.error("Aborted")

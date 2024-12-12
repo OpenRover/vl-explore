@@ -31,8 +31,10 @@ def colorize(x: float, C1: np.ndarray, C2: np.ndarray, CM=WHITE[::-1], POWER=0.5
     x = abs(x) ** POWER
     return tuple(C * x + CM * (1.0 - x))
 
+
 def norm_color(color: Iterable[float]) -> tuple[float]:
     return tuple(np.clip(color, 0.0, 1.0))
+
 
 def alpha(c: np.ndarray, a: float = 1.0):
     return np.append(c, a)
@@ -396,7 +398,9 @@ class LookAroundDatabase:
                 if len(trg_candidates) > 0:
                     _x0 = self.initial_rz
                     _dx = self.attrs.get("neg_window", 90.0) / 6
-                    trg_candidates = [(x, y) for x, y in trg_candidates if abs(ang_diff(_x0, x)) > _dx]
+                    trg_candidates = [
+                        (x, y) for x, y in trg_candidates if abs(ang_diff(_x0, x)) > _dx
+                    ]
 
                 if "debug" in self.attrs:
                     fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
@@ -810,7 +814,9 @@ if __name__ == "__main__":
     parser.add_argument("cwd", type=str, help="Current working directory")
     parser.add_argument("--src", help="Dir name of raw images", default="recording")
     parser.add_argument("--dst", help="Output Directory", default="look_around")
-    parser.add_argument("-y", "--yes", help="Yes to all", action="store_true", default=False)
+    parser.add_argument(
+        "-y", "--yes", help="Yes to all", action="store_true", default=False
+    )
     args = parser.parse_args()
     YES = bool(args.yes)
     CWD = Path(os.path.realpath(str(args.cwd)))
@@ -825,7 +831,7 @@ if __name__ == "__main__":
 
     if VIDEO_FILE.exists():
         assert VIDEO_FILE.is_file(), f"Bad destination: {VIDEO_FILE} is a directory"
-
+        log.warn(f"Video file already exists: {VIDEO_FILE}")
         if confirm("Overwrite existing video?", auto_rej=True):
             VIDEO_FILE.unlink()
         else:
