@@ -11,6 +11,7 @@ from json import dumps, loads
 from pathlib import Path
 from dataclasses import dataclass, field
 from contextlib import contextmanager
+from functools import cached_property
 
 from util.math import period_constraint, project, ang_diff, interpolate
 from util.colors import *
@@ -317,6 +318,10 @@ class LookAroundDatabase:
         return self.name.strip().replace(" ", "_")
 
     @property
+    def offset(self) -> float:
+        return self.get("offset", 0.0)
+
+    @property
     def initial_rz(self):
         return self.get("initial_rz", self.data[0][0])
 
@@ -347,14 +352,15 @@ class LookAroundDatabase:
             self.attrs[key] = default
         return self.attrs[key]
 
-    def process(self):
+    @cached_property
+    def plot_data(self):
         cube = np.array(self.data, dtype=np.float32)
         cube[:, 0] = cube[:, 0] % 360.0  # Normalize headings
         assert np.all(cube[:, 0] >= 0.0), f"Bad heading: {cube[:, 0]}"
         cube = cube[cube[:, 0].argsort(), :]
         hdg, nav, fam, trg, raw = cube.T[:5]
         # X variants
-        X = circular(hdg * DEG2RAD)
+        X: np.ndarray = circular(hdg * DEG2RAD)
         dX = circular(np.diff(X, prepend=X[-1], append=X[0]))
         assert np.all(dX >= 0.0), f"Bad heading order: {dX}"
         assert dX[0] == dX[-1], f"Bad continuity: {dX}"
@@ -431,7 +437,8 @@ class LookAroundDatabase:
             trg_candidates.sort(key=lambda x: x[1], reverse=True)
             self.attrs["candidates"] = trg_candidates + nav_candidates
         # Return intermediate results
-        return (X, Xw, Xc), (nav, fam, trg, raw), (gX, gY, gT)
+        OFFSET = self.offset
+        return (X + OFFSET, Xw + OFFSET, Xc + OFFSET), (nav, fam, trg, raw), (gX + OFFSET, gY, gT)
 
     def has_candidates(self):
         return "candidates" in self.attrs and len(self.attrs["candidates"]) > 0
@@ -465,7 +472,7 @@ class LookAroundDatabase:
             return self._renderer(ctx)
         initial_rz = self.initial_rz * DEG2RAD
         # Well-known values, should not be modified or overridden
-        (X, Xw, Xc), (nav, fam, ins, raw), (gX, gY, gT) = self.process()
+        (X, Xw, Xc), (nav, fam, ins, raw), (gX, gY, gT) = self.plot_data
         # Prepare X ranges for radar plot
         S = 1.0 * np.pi / 180.0
         outer_ring_widths = np.maximum(Xw - S / 2, Xw * 0.4)
@@ -703,7 +710,7 @@ def render_worker(
 
     Logger.compose = lambda ID, level, msgs, *_, **__: log_queue.put((ID, level, msgs))
     db = LookAroundDatabase(name)
-    db.add(*data).process()
+    db.add(*data)
 
     if pdf:
         # Save PDF figure for paper writing
