@@ -1,21 +1,13 @@
-import sys, io
+from sys import stdin, stdout
 from .look_around import RenderContext, LookAroundDatabase
-import matplotlib.pyplot as plt
-
-def dump(fig: plt.Figure):
-    # Create an in-memory string buffer
-    svg_buffer = io.StringIO()
-    # Save the figure as SVG into the buffer
-    fig.savefig(svg_buffer, transparent=True, format='svg')
-    svg_data = svg_buffer.getvalue()
-    svg_buffer.close()
-    print(svg_data)
 
 if __name__ == "__main__":
     db: LookAroundDatabase
-    for line in sys.stdin:
+    for line in stdin:
         line = line.strip()
-        if not line or line.startswith("#"):
+        if line == "::EOF::":
+            break
+        elif not line or line.startswith("#"):
             continue
         elif line.startswith("=" * 3):
             name = line.strip("=")
@@ -26,4 +18,6 @@ if __name__ == "__main__":
     with RenderContext(theme="light") as ctx:
         db.render(ctx)
         with ctx.head_to(0):
-            dump(ctx.fig)
+            ctx.fig.savefig(stdout, transparent=True, format="svg")
+            ctx.fig.savefig("output.svg", transparent=True, format="svg")
+            ctx.fig.savefig("output.pdf", transparent=True, format="pdf")

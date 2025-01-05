@@ -28,6 +28,7 @@ data/
 *.avi
 *.png
 *.jpg
+*.svg
 
 # MacOS
 .DS_Store

@@ -232,7 +232,7 @@ class RenderContext:
         x_minors = np.setdiff1d(self.x_minors, self.x_majors)
         ax.set_xticks(np.deg2rad(x_minors), minor=True)
         ax.xaxis.set_tick_params("both", direction="out")
-        ax.xaxis.set_tick_params("major", width=1.0, length=4)
+        ax.xaxis.set_tick_params("major", width=1.0, length=5)
         ax.xaxis.set_tick_params("minor", width=0.6, length=3)
         ax.xaxis.tick_top()
         ax.tick_params(labeltop=False, labelbottom=True)
@@ -257,6 +257,7 @@ class RenderContext:
             offset_y = (abs(math.sin(pos)) - 0.5) / 20.0
             label.set_position((0, -offset_y))
             label.set_fontsize(8)
+            label.set(in_layout=False)
 
     def circle(self, r: float, color: list[float], **kwargs):
         kw = dict(
@@ -319,7 +320,7 @@ class LookAroundDatabase:
 
     @property
     def offset(self) -> float:
-        return self.get("offset", 0.0)
+        return math.radians(self.get("offset", 0.0))
 
     @property
     def initial_rz(self):
@@ -437,8 +438,15 @@ class LookAroundDatabase:
             trg_candidates.sort(key=lambda x: x[1], reverse=True)
             self.attrs["candidates"] = trg_candidates + nav_candidates
         # Return intermediate results
-        OFFSET = self.offset
-        return (X + OFFSET, Xw + OFFSET, Xc + OFFSET), (nav, fam, trg, raw), (gX + OFFSET, gY, gT)
+        print(
+            f"Offset: {self.offset} rad | {math.degrees(self.offset)} deg",
+            file=sys.stderr,
+        )
+        return (
+            (X + self.offset, Xw, Xc + self.offset),
+            (nav, fam, trg, raw),
+            (gX + self.offset, gY, gT),
+        )
 
     def has_candidates(self):
         return "candidates" in self.attrs and len(self.attrs["candidates"]) > 0
@@ -470,7 +478,7 @@ class LookAroundDatabase:
     def render(self, ctx: RenderContext = RenderContext()) -> RenderContext:
         if self._renderer is not None:
             return self._renderer(ctx)
-        initial_rz = self.initial_rz * DEG2RAD
+        initial_rz = self.initial_rz * DEG2RAD + self.offset
         # Well-known values, should not be modified or overridden
         (X, Xw, Xc), (nav, fam, ins, raw), (gX, gY, gT) = self.plot_data
         # Prepare X ranges for radar plot
@@ -573,7 +581,7 @@ class LookAroundDatabase:
         def plot_candidate_headings(ctx: RenderContext):
             if "candidates" in self.attrs:
                 for i, (hdg, conf) in enumerate(self.attrs["candidates"]):
-                    x = circular(hdg * DEG2RAD)
+                    x = circular((hdg * DEG2RAD) + self.offset)
                     ctx.ax.plot(
                         (x, x),
                         (neutral, 1.5),
@@ -582,8 +590,11 @@ class LookAroundDatabase:
                         clip_on=False,
                         zorder=100,
                         linewidth=0.6 if i > 0 else 1.0,
+                        in_layout=False,
                     )
-                    ctx.ax.text(x, 1.7, f"C{i}", color=ctx.fg, **CENTER)
+                    ctx.ax.text(
+                        x, 1.7, f"C{i}", color=ctx.fg, **CENTER, in_layout=False
+                    )
             # Draw initial heading as black line
             ctx.ax.plot(
                 (initial_rz, initial_rz),
@@ -594,6 +605,7 @@ class LookAroundDatabase:
                 zorder=100,
                 linewidth=1.0,
                 alpha=0.5,
+                in_layout=False,
             )
 
         def plot_start_text(ctx: RenderContext):
