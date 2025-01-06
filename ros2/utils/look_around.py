@@ -194,6 +194,10 @@ class RenderContext:
         return tuple((BLACK if self.theme == "light" else WHITE)[::-1])
 
     @property
+    def mg(self) -> tuple[float, float, float]:
+        return tuple(GRAY[::-1])
+
+    @property
     def bg(self) -> tuple[float, float, float]:
         return (WHITE if self.theme == "light" else BLACK)[::-1]
 
@@ -247,6 +251,7 @@ class RenderContext:
             self.fg,
             linestyle="solid",
             linewidth=0.8,
+            facecolor=(*norm_color(self.bg), 0.5),
         )
 
     def relax_labels(self):
@@ -256,7 +261,7 @@ class RenderContext:
             pos = x - self.north * DEG2RAD
             offset_y = (abs(math.sin(pos)) - 0.5) / 20.0
             label.set_position((0, -offset_y))
-            label.set_fontsize(8)
+            # label.set_fontsize(8)
             label.set(in_layout=False)
 
     def circle(self, r: float, color: list[float], **kwargs):
@@ -264,6 +269,7 @@ class RenderContext:
             edgecolor=color,
             facecolor="none",
             linestyle="solid",
+            zorder=-999,
         )
         kw.update(kwargs)
         self.fig.add_artist(
@@ -438,10 +444,6 @@ class LookAroundDatabase:
             trg_candidates.sort(key=lambda x: x[1], reverse=True)
             self.attrs["candidates"] = trg_candidates + nav_candidates
         # Return intermediate results
-        print(
-            f"Offset: {self.offset} rad | {math.degrees(self.offset)} deg",
-            file=sys.stderr,
-        )
         return (
             (X + self.offset, Xw, Xc + self.offset),
             (nav, fam, trg, raw),
@@ -501,9 +503,9 @@ class LookAroundDatabase:
             outer_ring_vals.append(arr)
 
         def plot_outer_rings(ctx: RenderContext):
+            cm = alpha(ctx.fg, 0.0)
+            c2 = alpha(ctx.fg, 0.4)
             for i, (x, w) in enumerate(zip(Xc, outer_ring_widths)):
-                cm = alpha(ctx.fg, 0.0)
-                c2 = alpha(ctx.fg, 0.2)
                 for y, bottom, c1 in zip(
                     outer_ring_vals,
                     outer_ring_bottoms,
@@ -568,10 +570,10 @@ class LookAroundDatabase:
         def plot_neutral_text(ctx: RenderContext):
             return [
                 ctx.ax.text(
-                    ctx.north * DEG2RAD,
-                    neutral + 0.1,
+                    (ctx.north + 180.0) * DEG2RAD,
+                    neutral + 0.2,
                     "Neutral",
-                    size=8,
+                    # size=8,
                     color=ctx.fg,
                     **CENTER,
                 )
@@ -612,7 +614,7 @@ class LookAroundDatabase:
             pos = initial_rz - ctx.north * DEG2RAD
             offset = abs(math.sin(pos)) / 10.0
             t = ctx.ax.text(
-                initial_rz, 1.7 + offset, "Start", color=ctx.fg, **CENTER, alpha=0.5
+                initial_rz, 1.7 + offset, "Start", color=ctx.fg, **CENTER, alpha=1.0
             )
             return [t]
 
