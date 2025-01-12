@@ -294,12 +294,14 @@ class Ramp:
         else:
             self.src -= delta
         return self.src
-    
-    def __float__(self) -> float:
-        return self.get()
+
+    def reset(self, val: float = 0.0) -> "Ramp":
+        self.src = val
+        self.dst = val
+        return self
 
     def __call__(self, value: float) -> float:
-        return float(self.set(value))
+        return self.set(value).get()
 
 
 def log_to(arr: list[str]):

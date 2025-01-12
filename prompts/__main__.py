@@ -8,7 +8,7 @@ from util.logger import Logger
 
 log = Logger(__file__)
 
-for _ in ["navigation", "nav-left", "nav-right", "nav-center"]:
+for _ in ["navigation", "nav-left", "nav-right", "nav-center", "target"]:
     log.info(f"Generating prompt: {_}")
     nav = Prompt(_)
 

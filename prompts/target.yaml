@@ -1,0 +1,29 @@
+# This is the template boilerplate for target searching prompts
+# ==============================================================================
+# Each entry can have an accumulative weight that will be multiplied with other
+# hierarchies. The final weight will be the product of all the weights in the
+# hierarchy.
+# ==============================================================================
+# Author: Yuxuan Zhang (robotics@z-yx.cc)
+# License: MIT
+# ==============================================================================
+
+templates:
+    positive:
+        - a photo of {}
+        - a cropped photo of {} @ 0.99
+    negative:
+        - a photo of an unknown item
+        - a photo of an unknown scene
+        - a photo of an unknown object
+
+states:
+    positive:
+        - a (toy|teddy) bear @ 1.00
+        - a brown (toy|teddy) bear @ 0.99
+        - a brown (toy|teddy) bear in orange cloth @ 0.98
+        # - a brown (toy|teddy) bear with red (tie|ribbon) @ 1.00
+        # - a toy rain deer @ 0.99
+        # - a (yellow|brown) toy rain deer @ 0.99
+        # - a first aid (box|kit) @ 0.99
+        # - a red first aid (box|kit) @ 1.00

@@ -30,8 +30,10 @@ parser.add_argument("cwd", type=str, help="Current Working Directory")
 parser.add_argument("--strategy", default="6T1P", help="Strategy to use")
 parser.add_argument("--src", help="Dir name of raw images", default="recording")
 parser.add_argument("--dst", help="Output Directory", default="rendering")
-
+parser.add_argument("--resize", help="Resize factor", default=1.0)
+parser.add_argument("-y", "--yes", help="Yes to all", action="store_true", default=False)
 args = parser.parse_args()
+YES = bool(args.yes)
 CWD = Path(os.path.realpath(str(args.cwd)))
 SRC = CWD / str(args.src)
 DST = CWD / str(args.dst)
@@ -42,7 +44,7 @@ should_resize = size_factor != 1.0
 assert SRC.is_dir(), f"Invalid source directory: {SRC}"
 DST.mkdir(exist_ok=True, parents=True)
 
-FF_CONCAT = Path(f"{CWD}/render.list")
+FF_CONCAT = Path(f"{CWD}/rendering.ffconcat")
 VIDEO = Path(f"{CWD}.mp4")
 
 if VIDEO.is_dir():
@@ -50,10 +52,12 @@ if VIDEO.is_dir():
 
 
 if VIDEO.exists():
-    if confirm(f"Overwrite {VIDEO}?"):
+    log.warn(f"Target output already exists: {VIDEO}")
+    if confirm(f"Overwrite existing video?", auto_rej=True):
         VIDEO.unlink()
     else:
-        raise FileExistsError(VIDEO)
+        log.error("Aborted")
+        sys.exit(1)
 
 
 def fmt_time(t: float):
@@ -108,6 +112,7 @@ def render_frame(arguments):
             renderer.banner(frame, banner, blurred=blurred)
         cv2.imwrite(dst, frame)
     except Exception as e:
+        raise e
         return e
 
 
@@ -133,7 +138,7 @@ def main():
     )
     progress.update(0)
     results, durations = list[tuple[str, bool]](), list[float]()
-    t0 = None
+    t0 = None # Timestamp of first valid (actually rendered) frame
     prev_ts = None
 
     def gen():
@@ -153,16 +158,16 @@ def main():
             for ts, filename in map(parse, img):
                 if prev_ts is None:  # First frame
                     prev_ts = ts
-                t1 = ts
                 try:
-                    t1, d1 = M1(ts)  # Correlation
-                    t2, d2 = M2(ts)  # Navigation
+                    t1, d1, _ = M1(ts)  # Correlation
+                    t2, d2, _ = M2(ts)  # Navigation
                 except Matcher.Outdated:
                     if first_skip is None:
                         first_skip = ts
                     skipped += 1
                     results.append((filename, False))
                     durations.append(ts - prev_ts)
+                    prev_ts = ts
                     continue
                 if skipped > 0:
                     skip_duration = ts - first_skip
@@ -231,7 +236,7 @@ if __name__ == "__main__":
         log.info(msg)
         print("=" * len(msg))
         print()
-        if confirm(f"Remove rendering folder {DST}?", auto_acc=True):
+        if YES or confirm(f"Remove rendering folder {DST}?", auto_acc=True):
             for path in tqdm(
                 list(DST.glob("*")),
                 desc="Removing",
@@ -241,6 +246,7 @@ if __name__ == "__main__":
             ):
                 path.unlink()
             DST.rmdir()
+            FF_CONCAT.unlink()
     else:
         log.warn("No video rendered")
         log.info("Command: " + " ".join(ffmpeg))

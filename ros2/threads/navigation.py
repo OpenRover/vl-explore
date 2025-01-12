@@ -27,7 +27,7 @@ from util import types
 from util.env import CWD
 from util.sockets import SocketTransport, Server, Client
 from util.action import Action
-from util.math import ang_diff, clamp, sign, interpolate
+from util.math import ang_diff, clamp, sign, interpolate, project
 from util.timer import Timer
 from util.geometry import Point2f
 
@@ -68,7 +68,7 @@ class Navigation(TrapDetector, Action.Hub, Node):
             spin_once(self)
 
     vel: types.Motion = (0.0, 0.0, 0.0)
-    rmp: tuple[Ramp] = Ramp(0.1), Ramp(0.1), Ramp(0.1)
+    rmp: tuple[Ramp] = Ramp(0.2), Ramp(0.2), Ramp(0.2)
     decision_delay: float = 0.0
 
     msg: str | None = None  # Used to log message to console
@@ -76,11 +76,10 @@ class Navigation(TrapDetector, Action.Hub, Node):
 
     def motion(self, vel: types.Motion = None, msg=None):
         if vel is not None:
-            self.vel = tuple(map(float, vel))  # Terminal speed demanded
-            vx, vy, vr = [r(v) for r, v in zip(self.rmp, vel)]
-        else:
-            vx, vy, vr = (r.get() for r in self.rmp)
+            # Velocity updated
+            self.vel = tuple(map(float, vel))
         # Apply ramping
+        vx, vy, vr = [r(v) for r, v in zip(self.rmp, self.vel)]
         motion = Twist()
         motion.linear.x = vx
         motion.linear.y = vy
@@ -111,13 +110,33 @@ class Navigation(TrapDetector, Action.Hub, Node):
             # Odometry not initialized, assume free to move
             trapped = False
         self.declare_trapped("odometry", trapped, ts)
+        tx, ty = self.location
+        _, _, rz = att
+        enc = protocol.Odometry.encode([ts, tx, ty, rz])
         with open(CWD / "odometry.list", "at") as lst:
-            tx, ty = self.location
-            _, _, rz = att
-            for line in protocol.Odometry.encode([ts, tx, ty, rz]):
-                lst.write(line + "\n")
+            lst.write(",".join(map(str, enc)) + "\n")
 
     correlations: list[types.CorrelationStamped] = []
+
+    @Action.action
+    def move_for(self, duration: float, vel: tuple[float] = (-0.2, 0.0, 0.0)):
+        """Turn to a specific heading, stops when angular error is within tolerance"""
+        t1: float = now() + duration
+
+        def vel_match(vel, EPS=0.01):
+            return all(abs(r.get() - v) < EPS for r, v in zip(self.rmp, vel))
+
+        while not vel_match(vel):
+            yield self.motion(vel)
+        while now() < t1:
+            yield self.motion(vel)
+        while any(r.get() > 0.1 for r in self.rmp):
+            yield self.motion((0.0, 0.0, 0.0))
+
+    look_around_id: int = 0
+    last_look_around_location: Point2f = Point2f(0.0, 0.0)
+    # heading, confidence
+    last_look_around: LookAroundDatabase = None
 
     @Action.action
     def turn_to(self, heading: float, kv: float = 0.4, tolerance: float = 5.0):
@@ -156,16 +175,20 @@ class Navigation(TrapDetector, Action.Hub, Node):
     last_look_around: LookAroundDatabase = None
 
     @Action.action
-    def look_around(self, direction: float, initial: bool = False, neg_window: float = 90.0):
+    def look_around(
+        self, direction: float, initial: bool = False, neg_window: float = 90.0
+    ):
         """Perform a 360 degree turn around, find best heading to go next"""
         _, (_, _, initial_rz) = self.attitude
         # Check if look around has been done in the same location
         if self.last_look_around is not None and self.last_look_around.has_candidates():
             travel = self.location - self.last_look_around_location
-            if travel.norm() < self.trap_distance:
+            if travel.norm() < self.trap_distance * 2:
                 # Reuse previous look around result
                 heading, _ = self.last_look_around.next_candidate()
-                self.get_logger().info(f"Look around reusing previous result: {heading}")
+                self.get_logger().info(
+                    f"Look around reusing previous result: {heading}"
+                )
                 return self.turn_to(heading)
         # Initiate new look around procedure
         time_start = now()
@@ -173,7 +196,7 @@ class Navigation(TrapDetector, Action.Hub, Node):
         self.last_look_around = db = LookAroundDatabase(f"Look Around {id}")
         self.last_look_around_location = self.location
         self.look_around_id += 1
-        db.add({"direction": 'L' if direction > 0 else 'R'})
+        db.add({"direction": "L" if direction > 0 else "R"})
         db.add({"initial_rz": initial_rz})
         if not initial:
             db.add({"neg_window": neg_window})
@@ -201,26 +224,37 @@ class Navigation(TrapDetector, Action.Hub, Node):
             prev_rz = rz
             trj.append((ts, accumulated_angle))
         yield self.motion((0.0, 0.0, 0.0), info("[DONE]"))
-        db.add({"time", [time_start, now()]})
-        self.get_logger().info(f"Look around {id} captured {len(self.correlations)} data points")
+        db.add({"time": [time_start, now()]})
+        self.get_logger().info(
+            f"Look around {id} captured {len(self.correlations)} data points"
+        )
         # Create a mapping between timestamp and heading
         t2r = interpolate(*trj)
-        for t, c in self.correlations:
+        for t, (*c, target) in self.correlations:
             heading = ang_diff(0.0, t2r(t) + initial_rz)
             pred = self.mixer.to_numpy(c).reshape(2, -1, 3)
             nav, fam, std = pred[:, :, 0], pred[:, :, 1], pred[:, :, 2]
-            nav[std < 0.1] = 0.0
+            trg = self.mixer.to_numpy([target]).reshape(2, -1, 3)[:, :, 0]
             FAR, NEAR = 0, 1
-            nav = nav[FAR] * 0.2 + nav[NEAR] * 0.8
-            fam = fam[FAR] * 0.8 + fam[NEAR] * 0.2
-            nav: np.ndarray = pred[:, :, 0]
-            fam: np.ndarray = pred[:, :, 1]
-            nav[np.logical_and(nav > 0, std < 0.1)] = 0.0
+            nav: np.ndarray = nav[FAR] * 0.2 + nav[NEAR] * 0.8
+            fam: np.ndarray = fam[FAR] * 0.8 + fam[NEAR] * 0.2
+            trg: np.ndarray = np.max(trg, axis=0)
+            # Give higher weight to the center region
+            nav[1] *= 2.0
+            fam[1] *= 2.0
+            trg[1] *= 2.0
             # Blend navigability and familiarity only when not initial
-            comb: np.ndarray = nav if initial else nav * np.sqrt(1.0 - fam) 
-            score = float(comb.mean())
-            # 4th col reserved for instruction compliance score
-            db.add([heading, nav.mean(), fam.mean(), 0.0, score])
+            score: np.ndarray  # Range [-1, 1]
+            if initial:
+                score = nav
+            else:
+                KN = 0.6  # Weight of navigability score
+                try:
+                    fs = project((fam.max(), fam.min()), (-1.0, 1.0))(fam)
+                except:
+                    fs = np.zeros_like(fam)
+                score = nav * KN + fs * (1.0 - KN)
+            db.add([heading, nav.mean(), fam.mean(), trg.mean(), score.mean()])
         self.correlations.clear()
         db.process()
         with open(CWD / "look_around.list", "at") as lst:
@@ -262,13 +296,21 @@ def main():
                 robot.msg = None
         if robot.wait_action():
             pass
-        elif robot.trapped_for() > robot.trap_duration and not first_correlation:
+        elif (
+            robot.trapped_for() > robot.trap_duration
+            and not first_correlation
+            # Uncomment this to stop in front of the first target
+            and robot.mixer.state is None
+        ):
             duration = robot.trapped_for()
             reason = ", ".join(robot.trapped_reason())
             logger.info(str(robot.trapped_by))
             logger.info(f"Trapped for {duration:.2f}s ({reason})")
-            robot.look_around(0.2 if robot.vel[2] >= 0.0 else -0.2)
             robot.mixer.reset()
+            robot.look_around(0.2 if robot.vel[2] >= 0.0 else -0.2)
+            if robot.trapped_by["halt"]:
+                # Back off before starting look around
+                robot.move_for(1.0, (-0.4, 0.0, 0.0))
         elif len(robot.correlations):
             if first_correlation:
                 robot.declare_trapped("odometry", False)
@@ -280,11 +322,18 @@ def main():
                 reason = ", ".join(robot.trapped_reason())
                 msg = f"Trapped for {robot.trapped_for():.2f}s ({reason})"
             # Normal operation
-            *_, (ts, correlation) = robot.correlations
+            ts, correlation = robot.correlations[-1]
             robot.correlations.clear()
             robot.last_msg = None
-            robot.motion(robot.mixer(correlation), msg=msg)
+            motion = robot.mixer(correlation)
+            if robot.mixer.state is not None:
+                # Target identified
+                msg = robot.mixer.state
+                for r, v in zip(robot.rmp, motion):
+                    # Skip ramping
+                    r.reset(v)
+            robot.motion(motion, msg=msg)
         else:
-            # Keep ramping previous demanded velocities
+            # Keep ramping previously demanded velocities
             robot.motion(None, msg=None)
     return robot

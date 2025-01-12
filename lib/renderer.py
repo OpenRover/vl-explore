@@ -1,8 +1,9 @@
 import cv2
-from numpy import ndarray, stack
+from numpy import ndarray
 
 from .slicer import Slicer
 
+from util.params import STDDEV_THRESHOLD
 from util.iter import flatten
 from util.geometry import Region, Point2i as Point
 from util.graphics import TextBox, draw_corners
@@ -13,19 +14,19 @@ proj_nav = project((-0.33, +0.33), (-1.0, 1.0), clamp=True)
 proj_fam = project((1.0, 0.5), (-1.0, 1.0), clamp=True)
 
 
-def colorize(score: float, c1=WHITE, c2=BLACK, light: bool = True):
+def colorize(score: float, c1=WHITE, c2=BLACK, cm=GRAY, light: bool = True):
     # Check for NaN
     if score != score:
         score = 0.0
-    sat = min(abs(score), 1)
+    sat = min(abs(score), 1) * 0.8
     color = c1 if score >= 0 else c2
     A, B = (BLACK, WHITE) if light else (WHITE, BLACK)
     fg = color * sat + A * (1 - sat)
-    mg = color * sat + GRAY * (1 - sat)
+    mg = color * sat + cm * (1 - sat)
     sat /= 2
     bg = color * sat + B * (1 - sat)
 
-    return stack([bg, mg, fg], axis=0)
+    return np.stack([bg, mg, fg], axis=0)
 
 
 class Renderer:
@@ -36,17 +37,17 @@ class Renderer:
         self.banner_region = Region(0, h - h1, w, h1)
         self.banner_t_box = TextBox(
             self.banner_region,
-            align="center",
-            vertical_align="middle",
-            scale=self.font_scale(0.8),
+            ha="center",
+            va="middle",
+            size=self.font_scale(0.8),
             thickness=self.thickness(0.8),
         )
         self.stats_region = Region(0, 0, w, h1)
         self.stats_t_box = TextBox(
             self.stats_region,
-            align="center",
-            vertical_align="middle",
-            scale=self.font_scale(0.8),
+            ha="center",
+            va="middle",
+            size=self.font_scale(0.8),
             thickness=self.thickness(0.8),
         )
 
@@ -71,28 +72,29 @@ class Renderer:
     def region(
         self,
         frame: ndarray,
-        pred: tuple[str, float, float],
+        pred: tuple[str, float, float, float],
+        target: tuple[str, float, float, float],
         t_box: TextBox = None,
         background: Region = None,
         corners: Region = None,
     ):
         text, navigability, familiarity, stddev = pred
+        METRIC = f"N {navigability:.2f} | F {familiarity:.2f}"
 
         if background is not None:
             light = background(frame).mean() > 64
         else:
             light = True
 
-        if abs(navigability) <= 1e-4 or stddev < 0.1:
+        if abs(navigability) <= 1e-4 or stddev <= STDDEV_THRESHOLD:
             # Region is invalid, render in grayscale
             bg, mg, fg = u8(colorize(0, GRAY, GRAY, light=light))
+        elif target[1] > 0:
+            text, score, *_ = target
+            bg, mg, fg = u8(colorize(score, c1=CYAN, c2=CYAN, light=light))
+            METRIC = f"TARGET :: {score:.2f}"
         else:
-            bg, mg, fg = u8(
-                mix(
-                    colorize(proj_nav(navigability), GREEN, RED, light=light),
-                    colorize(proj_fam(familiarity), BLUE, RED, light=light),
-                )
-            )
+            bg, mg, fg = u8(colorize(proj_nav(navigability), GREEN, RED, light=light))
 
         if background is not None:
             rect = np.ones((*background.shape, 3))
@@ -111,17 +113,17 @@ class Renderer:
             for t, va in (
                 (f"STDDEV {stddev:.2f}", "top"),
                 (text, "middle"),
-                (f"N {navigability:.2f} | F {familiarity:.2f}", "bottom"),
+                (METRIC, "bottom"),
             ):
                 t_box(
                     frame,
                     t,
-                    scale=self.font_scale(),
+                    size=self.font_scale(),
                     color=fg,
                     thickness=self.thickness(),
                     font=cv2.FONT_HERSHEY_DUPLEX,
-                    align="center",
-                    vertical_align=va,
+                    ha="center",
+                    va=va,
                     line_height=1.5,
                     dpi_scale=2.0,
                 )
@@ -162,9 +164,10 @@ class Renderer6T1P(Renderer):
         frame: np.ndarray,
         pred: list[list[tuple[str, float, float]]],
     ):
-        pred = flatten(pred, 2)
+        target = flatten(pred[-1:], 2)
+        pred = flatten(pred[:-1], 2)
         offset = self.thickness() * 8
-        for p, r in zip(pred, self.slicer.regions):
+        for p, t, r in zip(pred, target, self.slicer.regions):
             c_box = r.offset(Point(-offset, -offset))
             t_box = TextBox(c_box.offset(Point(-offset, -offset)))
-            self.region(frame, p, t_box=t_box, background=c_box, corners=c_box)
+            self.region(frame, p, t, t_box=t_box, background=c_box, corners=c_box)

@@ -3,7 +3,6 @@
 # License: MIT
 # ==============================================================================
 from numpy import ndarray
-from torch import from_numpy
 from util.queue import Queue
 from threading import Thread
 
@@ -15,15 +14,15 @@ from util import types
 from util.exception import Expect
 from util.sockets import SocketTransport, Server, Client
 from util.timer import Timer, now
+from util.str import center
 
 from . import protocol
-from ..utils.ros import ros_entry, Count, ImageSubscriber, ok, center, log_to
+from ..utils.ros import ros_entry, Count, ImageSubscriber, ok, log_to
 
 from util.env import CWD
 
 Input = Queue[tuple[float, ndarray, list[str]]]
 Output = SocketTransport[types.PerceptionStamped]
-
 
 @Queue.Loop()
 def pred(s: Slicer, i: Input, o: Output):
@@ -50,7 +49,7 @@ def pred(s: Slicer, i: Input, o: Output):
                 )
             )
         with Timer("Inference".ljust(10), print=log_to(msg), origin=ts):
-            pred = (clip.encode_image(data)).cpu()
+            pred = (clip.encode_image(data)).cpu().numpy()
             del data
         o.send((ts, std, pred))
         # Process log
