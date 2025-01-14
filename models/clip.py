@@ -55,7 +55,7 @@ tokenizer: SimpleTokenizer | HFTokenizer = None
 
 # Load the full model
 def init(visual: bool = False, text: bool = False):
-    global  clip_model, clip_prep, preprocess, tokenizer
+    global clip_model, clip_prep, preprocess, tokenizer
     log.info("Loading CLIP model", name, "...")
     with warnings.catch_warnings():
         # OpenCLIP calls "torch.load()" without weights_only flag
@@ -74,6 +74,7 @@ def init(visual: bool = False, text: bool = False):
     else:
         del clip_model.transformer
     to_device(clip_model)
+
 
 def deinit():
     global clip_model
@@ -127,7 +128,10 @@ def _prepare(slicer: Slicer, frame: np.ndarray, threads: int = None) -> torch.Te
 
 @torch.no_grad()
 def prepare(
-    slicer: Slicer, frame: np.ndarray | torch.Tensor, threads: int = None, check: bool = False
+    slicer: Slicer,
+    frame: np.ndarray | torch.Tensor,
+    threads: int = None,
+    check: bool = False,
 ) -> torch.Tensor:
     # Torch tensor approach
     assert preprocess is not None, "Visual model not initialized."

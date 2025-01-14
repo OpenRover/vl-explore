@@ -19,6 +19,18 @@ class Prompt:
         # Transpose embeddings to shape (512, N)
         self.embeddings_transposed: torch.Tensor = self.embeddings.T
 
+    def __matmul__(self, pred: torch.Tensor | ndarray) -> torch.Tensor:
+        if isinstance(pred, ndarray):
+            pred = torch.from_numpy(
+                pred.copy(), device=self.embeddings_transposed.device
+            )
+        score = pred @ self.embeddings_transposed
+        score *= self.weights
+        return score
+
+    def __mul__(self, pred: torch.Tensor | ndarray):
+        return self.__matmul__(pred)
+
     @no_grad()
     def __call__(self, pred: torch.Tensor | ndarray):
         """
@@ -27,12 +39,7 @@ class Prompt:
         Input tensor shape: (N, 512)
         Output: [str] * N, float tensor of shape (N,)
         """
-        if isinstance(pred, ndarray):
-            pred = torch.from_numpy(
-                pred.copy(), device=self.embeddings_transposed.device
-            )
-        score = pred @ self.embeddings_transposed
-        score *= self.weights
+        score = self @ pred
         idx: list[int] = torch.argmax(torch.abs(score), dim=1).cpu().numpy().tolist()
         return [(self.prompts[n], float(score[i, n])) for i, n in enumerate(idx)]
 

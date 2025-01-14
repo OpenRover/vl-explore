@@ -25,10 +25,13 @@ device: torch.device = None
 to_device_args: dict[str, Any] = {}
 
 
-def select_device(override: str | None = args.device, reselect: bool = False):
+def select_device(override: str | None = None):
     global device, to_device_args
-    if not reselect and device is not None:
-        return
+    if override is None:
+        if device is not None:
+            return
+        else:
+            override = str(args.device)
     to_device_args = {}
     if override is not None:
         device = torch.device(override)

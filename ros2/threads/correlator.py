@@ -39,7 +39,8 @@ class DataBase:
         self.db = self.block()
         # Pointers to the points last seen in the database
         # Length = tiles, each element is the index of the last seen point
-        self.heads: list[int] = None
+        self.heads: list[int] = []
+        self.counts: list[int] = []
 
     def __len__(self):
         return self.count
@@ -54,7 +55,6 @@ class DataBase:
         if len(self):
             assert self.heads is not None
             assert len(self.heads) == len(x), [len(self.heads), len(x)]
-            assert self.counts is not None
             assert len(self.counts) == len(self), [len(self.counts), len(self)]
             # Calculate maximum correlation with existing points
             # (L, 512) @ (N, 512).T -> (L, N)
@@ -183,7 +183,7 @@ def main():
     prompts = [p.to("cpu") for p in node.strategy.prompts()]
     prompts.append(Prompt("target").to("cpu"))
     clip.deinit()
-    select_device("cpu", reselect=True)
+    select_device("cpu")
 
     input = node.input()
     ts, _, embeddings = input.get()

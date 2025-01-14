@@ -46,7 +46,7 @@ objects:
     - (aisle|hallway|walkway|corridor)
     - (floor|ground|carpet|pavement) @1.05
   negative:
-    - (furniture|desk|chair|table|cabinet|shelf)
+    - (furniture|desk|chair|table|cabinet|shelf|box)
     - (barrier|obstacle|blockage|barricade) @0.98
     - staircase
     - structure
