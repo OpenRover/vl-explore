@@ -30,7 +30,7 @@ def select_device(override: str | None = None):
     if override is None:
         if device is not None:
             return
-        else:
+        elif args.device is not None:
             override = str(args.device)
     to_device_args = {}
     if override is not None:
