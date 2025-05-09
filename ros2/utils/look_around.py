@@ -140,8 +140,11 @@ def window_scan(X: np.ndarray, Y: np.ndarray):
         xw, yw = x[l:r], y[l:r]
         assert np.all(yw > 0.0), f"Bad yw: {yw}"
         area = np.trapz(yw, xw)
-        # Weighted average
-        pos = np.sum(xw * yw) / np.sum(yw)
+        METHOD = "argmax"
+        if METHOD == "weight average":
+            pos = np.sum(xw * yw) / np.sum(yw)
+        if METHOD == "argmax":
+            pos = xw[np.argmax(yw)]
         hdg = circular(pos) / DEG2RAD
         candidates.append((hdg, area))
     return candidates
@@ -332,14 +335,14 @@ class LookAroundDatabase:
     def initial_rz(self):
         return self.get("initial_rz", self.data[0][0])
 
-    def add(self, *records: str | list[float] | dict):
+    def add(self, *records: str | list[float] | dict, **kwargs):
         for record in records:
-            try:
-                if isinstance(record, list):
-                    self.data.append(record)
-                elif isinstance(record, dict):
-                    self.attrs.update(record)
-                else:
+            if isinstance(record, list):
+                self.data.append(record)
+            elif isinstance(record, dict):
+                self.attrs.update(record)
+            else:
+                try:
                     assert type(record) is str, f"Bad record type: {type(record)}"
                     line = record.strip()
                     if line.startswith("@"):
@@ -347,17 +350,22 @@ class LookAroundDatabase:
                         assert len(key) > 0, f"Bad key: {key}"
                         if key in self.attrs:
                             log.warn(f"Duplicate attribute: {key}, overwriting.")
-                        self.attrs[key] = value and loads(value) or None
+                        if type(value) is str:
+                            self.attrs[key] = loads(value)
                     else:
                         self.data.append(list(map(float, line.split(","))))
-            except Exception as e:
-                log.error(f"Bad line: {line} ({e})")
+                except Exception as e:
+                    log.error(f"Bad line: {line} ({e})")
+        self.attrs.update(kwargs)
         return self
 
     def get(self, key: str, default=None):
         if key not in self.attrs:
             self.attrs[key] = default
         return self.attrs[key]
+
+    def process(self):
+        return self.plot_data
 
     @cached_property
     def plot_data(self):

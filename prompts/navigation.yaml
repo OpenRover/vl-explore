@@ -39,6 +39,7 @@ states:
     - (item|object) behind a clear glass
     - (transparent|clear|reflective) glass
     - (white|brick|concrete) (wall|panel)
+    - (people|person|human|animal|pet) (sitting|standing|walking) in the way
 
 objects:
   positive:

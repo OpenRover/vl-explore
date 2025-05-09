@@ -2,9 +2,13 @@
 # Author: Yuxuan Zhang (robotics@z-yx.cc)
 # License: MIT
 # ==============================================================================
+from time import time as now
 from numpy import ndarray
 from util.queue import Queue
 from threading import Thread
+from cv2 import cvtColor, COLOR_BGR2RGB
+
+from std_msgs.msg import Empty
 
 from lib.slicer import Slicer, shape
 
@@ -33,6 +37,7 @@ def pred(s: Slicer, i: Input, o: Output):
         with Timer("ImgCapture".ljust(10), print=log_to(msg), origin=ts):
             pass
         with Timer("Preprocess".ljust(10), print=log_to(msg), origin=ts):
+            img = cvtColor(img, COLOR_BGR2RGB)
             data = clip.prepare(s, img, threads=len(s))
             del img
         with Timer("Deviation".ljust(10), print=log_to(msg), origin=ts):
@@ -64,7 +69,6 @@ def pred(s: Slicer, i: Input, o: Output):
 
 
 class Perception(ImageSubscriber):
-
     output: SocketTransport[types.PerceptionStamped]
 
     def __init__(self):
@@ -74,6 +78,16 @@ class Perception(ImageSubscriber):
             protocol=protocol.Perception,
             logger=self.get_logger(),
         ).start()
+        # Tick handling - for simulating synchronous operation
+        self.tick: bool = False
+        self.last_tick: float = now()
+        self.tick_sub = self.create_subscription(
+            Empty, "tick", self.onTick, 10
+        )
+
+    def onTick(self, _: Empty):
+        self.tick = True
+        self.last_tick = now()
 
 
 @ros_entry
@@ -83,7 +97,7 @@ def main():
     select_device()
     clip.init(visual=True)
     node = Perception()
-    logger = protocol.logger = node.get_logger()
+    protocol.logger = node.get_logger()
     for topic, image, timestamp in node():
         slicer = node.strategy.Slicer(shape(image), (960, 640))
         assert len(slicer) > 0, len(slicer)
@@ -95,7 +109,16 @@ def main():
     with Expect(KeyboardInterrupt), Queue.Loop():
         for topic, image, timestamp in node():
             ts = timestamp.count
-            input.put((ts, image, []))
+            if True: # Parallel mode
+                input.put((ts, image, []))
+                continue
+            if node.tick:
+                node.tick = False
+                input.put((ts, image, []))
+            elif now() - node.last_tick > 10.0:
+                node.get_logger().warn("No tick received for 10 seconds.")
+                input.put((ts, image, []))
+                node.last_tick = now()
     input.close()
     worker.join()
     return node

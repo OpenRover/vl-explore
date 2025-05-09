@@ -4,7 +4,7 @@
 # ==============================================================================
 import numpy as np
 from time import time as now
-from std_msgs.msg import Bool
+from std_msgs.msg import Empty, Bool
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 
@@ -12,6 +12,7 @@ from . import protocol
 from ..utils.look_around import LookAroundDatabase
 from ..utils.ros import (
     ok,
+    log_to,
     spin_once,
     ros_entry,
     attitude_from_quaternion,
@@ -59,6 +60,7 @@ class Navigation(TrapDetector, Action.Hub, Node):
         # Accumulator for travel distance in given duration
         self.accumulator = TravelAccumulator(self.trap_duration)
         # ROS Messages
+        self.tick_pub = self.create_publisher(Empty, "tick", 10)
         self.motion_pub = self.create_publisher(Twist, "motion", 10)
         self.halt_sub = self.create_subscription(Bool, "halt", self.handle_halt_msg, 10)
         self.odom_sub = self.create_subscription(
@@ -196,10 +198,10 @@ class Navigation(TrapDetector, Action.Hub, Node):
         self.last_look_around = db = LookAroundDatabase(f"Look Around {id}")
         self.last_look_around_location = self.location
         self.look_around_id += 1
-        db.add({"direction": "L" if direction > 0 else "R"})
-        db.add({"initial_rz": initial_rz})
+        db.add(direction="L" if direction > 0 else "R")
+        db.add(initial_rz=initial_rz)
         if not initial:
-            db.add({"neg_window": neg_window})
+            db.add(neg_window=neg_window)
         # (timestamp, heading)
         trj: list[tuple[float, float]] = []
         prev_rz = initial_rz
@@ -212,7 +214,7 @@ class Navigation(TrapDetector, Action.Hub, Node):
                 p = abs(accumulated_angle) / 360.0
                 progress = "{:.1f}".format(100.0 * p)
                 s = progress.rjust(5, "0") + "%"
-            return f"Looking around {id} - {s}"
+            return f"Look Around {id} - {s}"
 
         direction = vr_clamp(direction)
         while abs(accumulated_angle) < 360.0 or len(trj) < 10:
@@ -224,7 +226,7 @@ class Navigation(TrapDetector, Action.Hub, Node):
             prev_rz = rz
             trj.append((ts, accumulated_angle))
         yield self.motion((0.0, 0.0, 0.0), info("[DONE]"))
-        db.add({"time": [time_start, now()]})
+        db.add(time=[time_start, now()])
         self.get_logger().info(
             f"Look around {id} captured {len(self.correlations)} data points"
         )
@@ -287,53 +289,62 @@ def main():
         while now() < next_loop:
             spin_once(robot, timeout_sec=next_loop - now())
         next_loop += interval
+        ts, correlation = None, None
+        log = []
         for ts, correlation in input.dump():
             robot.decision_delay = now() - ts
-            with Timer(*count("Decision".ljust(10)), print=logger.debug, origin=ts):
-                robot.correlations.append((ts, correlation))
+            robot.correlations.append((ts, correlation))
             if robot.msg is not None:
                 logger.info(robot.msg)
                 robot.msg = None
-        if robot.wait_action():
-            pass
-        elif (
-            robot.trapped_for() > robot.trap_duration
-            and not first_correlation
-            # Uncomment this to stop in front of the first target
-            and robot.mixer.state is None
-        ):
-            duration = robot.trapped_for()
-            reason = ", ".join(robot.trapped_reason())
-            logger.info(str(robot.trapped_by))
-            logger.info(f"Trapped for {duration:.2f}s ({reason})")
-            robot.mixer.reset()
-            robot.look_around(0.2 if robot.vel[2] >= 0.0 else -0.2)
-            if robot.trapped_by["halt"]:
-                # Back off before starting look around
-                robot.move_for(1.0, (-0.4, 0.0, 0.0))
-        elif len(robot.correlations):
-            if first_correlation:
-                robot.declare_trapped("odometry", False)
-                robot.accumulator.reset()
-                first_correlation = False
-            msg = None
-            if robot.is_trapped():
+            break
+        with Timer(*count("Decision".ljust(10)), print=log_to(log), origin=ts):
+            if robot.wait_action():
+                pass
+            elif (
+                robot.trapped_for() > robot.trap_duration
+                and not first_correlation
+                # Uncomment this to stop in front of the first target
+                and robot.mixer.state is None
+            ):
                 duration = robot.trapped_for()
                 reason = ", ".join(robot.trapped_reason())
-                msg = f"Trapped for {robot.trapped_for():.2f}s ({reason})"
-            # Normal operation
-            ts, correlation = robot.correlations[-1]
-            robot.correlations.clear()
-            robot.last_msg = None
-            motion = robot.mixer(correlation)
-            if robot.mixer.state is not None:
-                # Target identified
-                msg = robot.mixer.state
-                for r, v in zip(robot.rmp, motion):
-                    # Skip ramping
-                    r.reset(v)
-            robot.motion(motion, msg=msg)
-        else:
-            # Keep ramping previously demanded velocities
-            robot.motion(None, msg=None)
+                logger.info(str(robot.trapped_by))
+                logger.info(f"Trapped for {duration:.2f}s ({reason})")
+                robot.mixer.reset()
+                robot.look_around(0.2 if robot.vel[2] >= 0.0 else -0.2)
+                # Back off before starting look around
+                if robot.trapped_by["halt"]:
+                    robot.move_for(1.0, (-0.4, 0.0, 0.0))
+                else:
+                    robot.move_for(0.6, (-0.4, 0.0, 0.0))
+            elif correlation is not None:
+                robot.correlations.clear()
+                if first_correlation:
+                    robot.declare_trapped("odometry", False)
+                    robot.accumulator.reset()
+                    first_correlation = False
+                msg = None
+                if robot.is_trapped():
+                    duration = robot.trapped_for()
+                    reason = ", ".join(robot.trapped_reason())
+                    msg = f"Trapped for {robot.trapped_for():.2f}s ({reason})"
+                # Normal operation
+                robot.last_msg = None
+                motion = robot.mixer(correlation)
+                if robot.mixer.state is not None:
+                    # Target identified
+                    msg = robot.mixer.state
+                    for r, v in zip(robot.rmp, motion):
+                        # Skip ramping
+                        r.reset(v)
+                robot.motion(motion, msg=msg)
+            else:
+                # Keep ramping previously demanded velocities
+                robot.motion(None, msg=None)
+        if correlation is not None:
+            with open(CWD / "perf.log", "at") as perf:
+                for l in log:
+                    perf.write(l + "\n")
+            robot.tick_pub.publish(Empty())
     return robot

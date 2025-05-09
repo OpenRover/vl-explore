@@ -29,6 +29,6 @@ if __name__ == "__main__":
         db.render(ctx)
         with ctx.head_to(0):
             ctx.fig.savefig(stdout, transparent=True, format="svg")
-            ctx.fig.savefig("output.svg", transparent=True, format="svg")
-            ctx.fig.savefig("output.pdf", transparent=True, format="pdf")
+            # ctx.fig.savefig("output.svg", transparent=True, format="svg")
+            # ctx.fig.savefig("output.pdf", transparent=True, format="pdf")
     print("LookAround Rendering Complete", file=stderr)

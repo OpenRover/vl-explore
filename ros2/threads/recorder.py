@@ -64,7 +64,7 @@ def main():
         img_list.write(",".join(map(JSON.stringify, [ts.count, loc.name])) + "\n")
         img_queue.put((loc, msg))
         t1 = now()
-        if t1 > next_report:
+        if t1 > next_report and len(img_queue) > 1:
             next_report = t1 + 2
             logger.info(f"{len(img_queue)} images in the queue")
 
