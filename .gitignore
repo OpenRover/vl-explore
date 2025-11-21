@@ -39,3 +39,6 @@ Thumbs.db
 
 # Temporary files
 test.py
+
+# Model weights
+models/weights/

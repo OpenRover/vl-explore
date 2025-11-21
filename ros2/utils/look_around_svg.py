@@ -25,7 +25,7 @@ if __name__ == "__main__":
         else:
             db.add(line)
     print("LookAround Rendering Received", file=stderr)
-    with RenderContext(theme="light") as ctx:
+    with RenderContext(theme="dark") as ctx:
         db.render(ctx)
         with ctx.head_to(0):
             ctx.fig.savefig(stdout, transparent=True, format="svg")
