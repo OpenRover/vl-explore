@@ -38,7 +38,7 @@ states:
     - (closed|blocked) (gateway|doorway|entrance)
     - (item|object) behind a clear glass
     - (transparent|clear|reflective) glass
-    - (white|brick|concrete) (wall|panel)
+    - (white|brick|concrete|wood|wooden|glass) (wall|panel)
     - (people|person|human|animal|pet) (sitting|standing|walking) in the way
 
 objects:

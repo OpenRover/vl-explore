@@ -311,6 +311,8 @@ def main():
                 reason = ", ".join(robot.trapped_reason())
                 logger.info(str(robot.trapped_by))
                 logger.info(f"Trapped for {duration:.2f}s ({reason})")
+                # logger.warn(f"Look around disabled, task failed.")
+                # break
                 robot.mixer.reset()
                 robot.look_around(0.2 if robot.vel[2] >= 0.0 else -0.2)
                 # Back off before starting look around

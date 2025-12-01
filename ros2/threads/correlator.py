@@ -154,6 +154,7 @@ def correlate(
                 if std <= STDDEV_THRESHOLD:
                     score = -abs(score)
                     familiarity = 1.0
+                familiarity = 0.0
                 c.append([label, score, familiarity, std])
         return correlation
 
