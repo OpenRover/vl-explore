@@ -1,6 +1,6 @@
 # vl-explore
 
-Model-centric visual-language exploration and navigation pipeline implementation for the VL-explore paper ([arXiv:2502.08791](https://arxiv.org/abs/2502.08791)).
+Model-centric vision-language exploration and navigation pipeline implementation for the VL-explore paper ([arXiv:2502.08791](https://arxiv.org/abs/2502.08791)).
 
 > [!IMPORTANT]
 > This repository is **not intended to run stand-alone** for full robot navigation.
