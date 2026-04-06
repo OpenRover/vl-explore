@@ -134,6 +134,20 @@ These are useful for algorithm inspection, but they are not a substitute for ful
 - `ros2/utils/` — ROS helpers, look-around rendering/analysis tools
 - `util/` — shared utilities (transport, queue, logging, math, geometry)
 
+## Citation
+
+```bibtex
+@misc{zhang2025vlexplorezeroshotvisionlanguageexploration,
+      title={VL-Explore: Zero-shot Vision-Language Exploration and Target Discovery by Mobile Robots}, 
+      author={Yuxuan Zhang and Adnan Abdullah and Sanjeev J. Koppal and Md Jahidul Islam},
+      year={2025},
+      eprint={2502.08791},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/2502.08791}, 
+}
+```
+
 ## License
 
 MIT (see `LICENSE`).
