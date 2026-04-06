@@ -137,7 +137,7 @@ These are useful for algorithm inspection, but they are not a substitute for ful
 ## Citation
 
 ```bibtex
-@misc{zhang2025vlexplorezeroshotvisionlanguageexploration,
+@misc{zhang2025vlexplore,
       title={VL-Explore: Zero-shot Vision-Language Exploration and Target Discovery by Mobile Robots}, 
       author={Yuxuan Zhang and Adnan Abdullah and Sanjeev J. Koppal and Md Jahidul Islam},
       year={2025},
